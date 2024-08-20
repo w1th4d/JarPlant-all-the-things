@@ -14,7 +14,7 @@ import java.util.Set;
 import java.util.jar.JarFile;
 
 public class Main {
-    private static final String LIMIT_PATH = "/tmp/jarplant-att";
+    private static final String LIMIT_PATH = "~/.m2/repository";
 
     public static void main(String[] args) {
         init();
