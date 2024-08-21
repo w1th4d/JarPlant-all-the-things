@@ -38,7 +38,7 @@
                             <archive>
                                 <manifest>
                                     <mainClass>
-                                        org.example.Main
+                                        org.example.implants.SelfRepImplant
                                     </mainClass>
                                 </manifest>
                             </archive>
