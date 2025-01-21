@@ -37,7 +37,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     /**
      * Domain to report home to.
      */
-    static volatile String CONF_DOMAIN = "awxbuqxppmidgwnzbaohcbazx0vcxkdb9.oast.fun";
+    static volatile String CONF_DOMAIN;
 
     @SuppressWarnings("unused")
     public static void init() {
