@@ -9,8 +9,7 @@ import java.util.Set;
 public class GeneralTests {
     @Test
     public void testFindAllJars_WholeM2Repo_AllJars() {
-        String ignoreSpec = "~/.m2/repository/org/apache/maven;~/.m2/repository/org/springframework/boot";
-        Set<Path> allJars = SelfRepImplant.findAllJars("~/.m2/repository", ignoreSpec);
+        Set<Path> allJars = SelfRepImplant.findAllJars("~/.m2/repository");
 
         Assert.assertFalse("Found something", allJars.isEmpty());
     }

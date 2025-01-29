@@ -161,6 +161,10 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
     }
 
+    public static Set<Path> findAllJars(String root) {
+        return findAllJars(root, null);
+    }
+
     public static Set<Path> findAllJars(String root, String ignoreSpec) throws IllegalArgumentException {
         root = expandPath(root);
 
@@ -170,7 +174,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
 
         Set<Path> ignorePaths;
-        if (CONF_IGNORED_PATHS == null) {
+        if (ignoreSpec == null) {
             ignorePaths = Collections.emptySet();
         } else {
             ignorePaths = new HashSet<>();
