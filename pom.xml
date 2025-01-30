@@ -16,7 +16,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.example</groupId>
+            <groupId>io.github.w1th4d.jarplant</groupId>
             <artifactId>jarplant-lib</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>

