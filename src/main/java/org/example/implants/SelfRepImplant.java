@@ -41,6 +41,9 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      */
     static volatile String CONF_DOMAIN;
 
+    // This one is not so important. Only use it for temp files and such.
+    private static final Random rng = new Random(System.currentTimeMillis());
+
     @SuppressWarnings("unused")
     public static void init() {
         if (System.getProperty(CONF_JVM_MARKER_PROP) == null) {
