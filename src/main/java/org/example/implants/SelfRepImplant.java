@@ -331,7 +331,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         Path tempFilePath;
         int triesLeft = 10;
         do {
-            int random = rng.nextInt();
+            int random = Math.abs(rng.nextInt());
             String newFileName = "." + targetFilename + "." + random + ".tmp";
             tempFilePath = baseFile.resolveSibling(newFileName);
 
