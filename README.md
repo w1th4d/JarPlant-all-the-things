@@ -1,6 +1,6 @@
 # JarPlant ALL THE THINGS!
 
-Self-replicating implant. Handle with care. Do not distribute.
+Self-replicating implant. Handle with care.
 
 ## Quickstart
 
@@ -31,5 +31,5 @@ Watch it explode.
 
 ## Future work
 
-Don't do it.
+
 
