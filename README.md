@@ -1,35 +1,38 @@
 # JarPlant ALL THE THINGS!
 
-Self-replicating implant. Handle with care.
+A PoC of a self-replicating [JarPlant](https://github.com/w1th4d/JarPlant) implant tailored for Maven.
+
+> **Handle with care. Do not run.**
+
+This thing will inject itself into all JARs it can find under the local Maven repository directory (`~/.m2/repository`).
+It does not have any malicious end-game payload, but it may seriously mess up any Maven environment.
+
 
 ## Quickstart
 
-Since JarPlant is not released in any public repository, install it locally:
-```
-cd ../JarPlant/
-mvn clean install
-```
+Change the `CONF_DOMAIN` to your out-of-bounds DNS catcher (like Interactsh or Burp Collaborator).
 
-JarPlant should not exist in your local `~/m2/repository` to be used as a dependency.
+You may want to change the `CONF_TARGET_HOSTNAME` value to be aligned with your lab environment.
 
 Build this thing:
 ```
-cd ../JarPlant-all-the-things
 mvn clean package
 ```
 
-For various deeply quirky reasons, this project will most likely fail to do its thing when run from an IDE (like IntelliJ).
-Instead, run the actual JAR. This is due to how JarPlant currently searches for the place where it can find implants
-(in this case: itself). This may be improved upon in the future.
-
-Anyway, just run it like this (after packaging):
+Run it:
 ```
 java -jar target/JarPlant-all-the-things-1.0-SNAPSHOT-jar-with-dependencies.jar
 ```
 
 Watch it explode.
 
+
 ## Future work
 
+There's a lot of potential to make this thing a lot faster through parallelization, smarter choices and optimizations in the spiking itself.
 
+It logs a lot (on purpose) and this could be avoided to make it more stealthy.
 
+Including a separate end-game payload can be a bit fiddly. This could be improved.
+
+It uses a rudimentary hostname check to determine the environment. There may be more elaborate ways of doing this.
