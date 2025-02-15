@@ -1,11 +1,12 @@
 # JarPlant ALL THE THINGS!
 
-A PoC of a self-replicating [JarPlant](https://github.com/w1th4d/JarPlant) implant tailored for Maven.
+A PoC of a self-replicating [JarPlant](https://github.com/w1th4d/JarPlant) implant tailored for Maven build pipelines.
 
-> **Handle with care. Do not run.**
+> **Handle with care. Do not run!**
 
 This thing will inject itself into all JARs it can find under the local Maven repository directory (`~/.m2/repository`).
-It does not have any malicious end-game payload, but it may seriously mess up any Maven environment.
+It does not have any malicious end-game payload, but it may seriously mess up your Maven environment.
+Use responsibly.
 
 
 ## Quickstart
@@ -29,10 +30,9 @@ Watch it explode.
 
 ## Future work
 
-There's a lot of potential to make this thing a lot faster through parallelization, smarter choices and optimizations in the spiking itself.
+There's a lot of potential to make this thing a lot faster through parallelization, smarter choices and optimizations of the spiking itself.
 
 It logs a lot (on purpose) and this could be avoided to make it more stealthy.
 
-Including a separate end-game payload can be a bit fiddly. This could be improved.
+It uses a rudimentary hostname check to determine the target environment. There may be more elaborate ways of doing this.
 
-It uses a rudimentary hostname check to determine the environment. There may be more elaborate ways of doing this.
