@@ -200,6 +200,14 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     }
 
     public void payload() {
+        /*
+         * The idea with "execution context awareness" is that you can also do different things based on indicators
+         * of in what context this implant was triggered from.
+         * Want to JarPlant all the things only if we're running inside Maven?
+         * Want to do some data exfil only if the spiked app runs standalone?
+         * Developers (running spiked stuff from an IDE) may have local admin and outbound connectivity...
+         * You get the idea!
+         */
         switch (executionContextIndicator) {
             case EXEC_CTX_UNKNOWN -> System.out.println("[!] Execution context: Unknown.");
             case EXEC_CTX_MAIN -> System.out.println("[ ] Execution context: A main function.");
