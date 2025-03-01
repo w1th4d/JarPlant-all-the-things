@@ -11,7 +11,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 import static org.junit.Assert.assertTrue;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 
 public class GeneralTests {
     @Test
@@ -19,7 +19,7 @@ public class GeneralTests {
         BlockingQueue<Optional<Path>> allJars = new LinkedBlockingQueue<>();
         SelfRepImplant.findAllJars("~/.m2/repository", allJars);
 
-        Assert.assertFalse("Found something", allJars.isEmpty());
+        assertFalse("Found something", allJars.isEmpty());
     }
 
     @Test
@@ -349,5 +349,52 @@ public class GeneralTests {
         int execCtxIndicator = SelfRepImplant.guessExecutionContext(stackTrace);
 
         assertEquals(SelfRepImplant.EXEC_CTX_BUILD_TOOL, execCtxIndicator);
+    }
+
+    @Test
+    public void testShouldExecute_HostnameRegexes_Matches() {
+        // Arrange
+        int dummyExecCtx = SelfRepImplant.EXEC_CTX_IDE;
+        SelfRepImplant.CONF_RUN_FROM_IDE = true;
+        SelfRepImplant.CONF_TARGET_HOSTNAME_REGEX = ".*jenkins.*";
+
+        // Assert positive cases
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "jenkins"));
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "jenkins01"));
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "jenkins-worker01"));
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "test-jenkins"));
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "test-jenkins-01"));
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "leroyjenkins"));
+
+        // Assert negative cases
+        assertFalse(SelfRepImplant.shouldExecute(dummyExecCtx, "derpins"));
+        assertFalse(SelfRepImplant.shouldExecute(dummyExecCtx, "jenk"));
+        assertFalse(SelfRepImplant.shouldExecute(dummyExecCtx, "ins"));
+    }
+
+    @Test
+    public void testShouldExecute_NoHostNameRegex_AnythingGoes() {
+        // Arrange
+        int dummyExecCtx = SelfRepImplant.EXEC_CTX_IDE;
+        SelfRepImplant.CONF_RUN_FROM_IDE = true;
+
+        // Act + Assert
+        SelfRepImplant.CONF_TARGET_HOSTNAME_REGEX = null;
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "whatever"));
+        SelfRepImplant.CONF_TARGET_HOSTNAME_REGEX = "";
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "whatever"));
+        SelfRepImplant.CONF_TARGET_HOSTNAME_REGEX = ".*";
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "whatever"));
+    }
+
+    @Test
+    public void testShouldExecute_NoHostnameFound_ExecuteAnyway() {
+        // Arrange
+        int dummyExecCtx = SelfRepImplant.EXEC_CTX_IDE;
+        SelfRepImplant.CONF_RUN_FROM_IDE = true;
+
+        // Act + Assert
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, null));
+        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, ""));
     }
 }
