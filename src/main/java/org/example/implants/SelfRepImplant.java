@@ -191,26 +191,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
 
         // Wait for all threads to complete.
-        plantingThreads.shutdown();
-        try {
-            if (!plantingThreads.awaitTermination((long) CONF_THREADS * 10, TimeUnit.SECONDS)) {
-                System.out.println("[!] Some concurrent task(s) did not finnish!");
-
-                // Something is taking too long. Shutdown hard by interrupting all threads.
-                plantingThreads.shutdownNow();
-                if (!plantingThreads.awaitTermination(10, TimeUnit.SECONDS)) {
-                    System.out.println("[!] Some concurrent task(s) had to be shut down hard!");
-                    plantingThreads.shutdownNow();
-                    if (!plantingThreads.awaitTermination(10, TimeUnit.SECONDS)) {
-                        // Blood will be spilled.
-                    }
-                }
-            }
-        } catch (InterruptedException ignored) {
-            // Someone wants us terminated. Gracefully GTFO.
-            plantingThreads.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+        shutdownAndWaitForThreads(plantingThreads);
 
         long plantTock = System.nanoTime();
         System.out.println("[#] JarPlanting took " + Duration.ofNanos(plantTock - plantTick));
@@ -225,14 +206,28 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
 
         // Wait for the DNS requests to finnish.
-        dnsThreads.shutdown();
+        shutdownAndWaitForThreads(dnsThreads);
+    }
+
+    private static void shutdownAndWaitForThreads(ExecutorService threads) {
+        threads.shutdown();
         try {
-            if (!dnsThreads.awaitTermination(10, TimeUnit.SECONDS)) {
-                dnsThreads.shutdownNow();
-                dnsThreads.awaitTermination(5, TimeUnit.SECONDS);
+            if (!threads.awaitTermination((long) CONF_THREADS * 10, TimeUnit.SECONDS)) {
+                System.out.println("[!] Some concurrent task(s) did not finnish!");
+
+                // Something is taking too long. Shutdown hard by interrupting all threads.
+                threads.shutdownNow();
+                if (!threads.awaitTermination(10, TimeUnit.SECONDS)) {
+                    System.out.println("[!] Some concurrent task(s) had to be shut down hard!");
+                    threads.shutdownNow();
+                    if (!threads.awaitTermination(10, TimeUnit.SECONDS)) {
+                        // Blood will be spilled.
+                    }
+                }
             }
-        } catch (InterruptedException e) {
-            dnsThreads.shutdownNow();
+        } catch (InterruptedException ignored) {
+            // Someone wants us terminated. Gracefully GTFO.
+            threads.shutdownNow();
             Thread.currentThread().interrupt();
         }
     }
