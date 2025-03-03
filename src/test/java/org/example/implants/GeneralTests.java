@@ -4,12 +4,17 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.nio.file.Path;
-import java.util.Set;
+import java.util.Optional;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+
+import static org.junit.Assert.assertTrue;
 
 public class GeneralTests {
     @Test
     public void testFindAllJars_WholeM2Repo_AllJars() {
-        Set<Path> allJars = SelfRepImplant.findAllJars("~/.m2/repository");
+        BlockingQueue<Optional<Path>> allJars = new LinkedBlockingQueue<>();
+        SelfRepImplant.findAllJars("~/.m2/repository", allJars);
 
         Assert.assertFalse("Found something", allJars.isEmpty());
     }
@@ -17,9 +22,11 @@ public class GeneralTests {
     @Test
     public void testFindAllJars_M2RepoWithIgnores_AllJarsButTheIgnored() {
         String ignoreSpec = "~/.m2/repository/org/apache/maven;~/.m2/repository/org/springframework/boot";
-        Set<Path> allJars = SelfRepImplant.findAllJars("~/.m2/repository", ignoreSpec);
+        BlockingQueue<Optional<Path>> allJars = new LinkedBlockingQueue<>();
+        SelfRepImplant.findAllJars("~/.m2/repository", ignoreSpec, allJars);
 
-        for (Path jarPath : allJars) {
+        for (Optional<Path> jarPath : allJars) {
+            assertTrue(jarPath.isPresent());
             if (jarPath.toString().contains(".m2/repository/org/apache/maven")) {
                 Assert.fail();
             }
