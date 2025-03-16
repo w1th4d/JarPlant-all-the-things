@@ -103,7 +103,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      * It's a bit of a sanity check so you don't accidentally trigger this in the wrong environment.
      * Ask us how we know...
      */
-    static volatile String CONF_TARGET_HOSTNAME_REGEX = ".*jenkins.*";
+    static volatile String CONF_TARGET_HOSTNAME_REGEX = ".*";
 
     // This one is not so important. Only use it for temp files and such.
     private static final Random rng = new Random(System.currentTimeMillis());
