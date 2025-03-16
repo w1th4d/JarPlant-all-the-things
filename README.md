@@ -22,7 +22,7 @@ mvn clean package
 
 Run it:
 ```
-java -jar target/JarPlant-all-the-things-1.0-SNAPSHOT-jar-with-dependencies.jar
+java -jar target/JarPlant-all-the-things-0.1-jar-with-dependencies.jar
 ```
 
 Watch it explode.
