@@ -30,7 +30,7 @@ Watch it explode.
 
 ## Future work
 
-There's a lot of potential to make this thing a lot faster through parallelization, smarter choices and optimizations of the spiking itself.
+There's a lot of potential to make this thing a lot faster through smarter choices and optimizations of the spiking itself.
 
 It logs a lot (on purpose) and this could be avoided to make it more stealthy.
 
