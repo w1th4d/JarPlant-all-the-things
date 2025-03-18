@@ -45,7 +45,7 @@ mvn clean package
 
 ## Initial infection
 
-Depending on your testing methodology, you may either just _run it manually_ or _emulate a supply-chain attack_.
+Depending on your scenario, you may either just _run it manually_ or _emulate a supply-chain attack_.
 
 ### Run it manually
 
