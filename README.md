@@ -13,15 +13,17 @@ Any subsequent build that depends on an affected artifact will do the same, carr
 
 ## But, why?
 
-This project was initially conceived as a demo of how a build-time malware could spread and infest a build 
-server through means of _cross build injection_.
-In our opinion, it's an under-discussed topic in application security and DevOps circles that deserves more attention.
+This project was conceived as a demonstration of how a build-time malware could spread and infest a build server through
+means of _Cross Build Injection_.
+The code was made public to emphasize the need for detection and prevention against such attacks.
 
 This project demonstrates how a rogue Java project can infect (or _spike_) all artifacts cached locally on a build 
-server that lacks proper isolation between builds (which is the common default most [Jenkins](https://www.jenkins.io/) servers).
-The payload itself self-replicates (like a classic _computer virus_), so the next build that depends upon any
-infected artifact also runs the malicious code and re-infect the entire system all over again.
-If any build pipeline is publishing artifacts to a remote repository then the situation gets even stickier.
+server that lacks proper isolation between builds (which is the common default most [Jenkins](https://www.jenkins.io/) 
+servers).
+The payload itself self-replicates (like a classic _computer virus_).
+The next build that depends upon any infected artifact also runs the malicious code and re-infect the system. 
+Further, if a build pipeline publishes infected artifacts to a package registry, the potential spread can increase 
+significantly, affecting developer workstations and eventually production servers downstream.
 
 The end result can be a persistent backdoor in all JVM applications (and libraries) that the infested build environment
 creates. The backdoor leaves no traces in the source code and is typically injected before any artifact signing, 
