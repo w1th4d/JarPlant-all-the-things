@@ -2,7 +2,10 @@
 
 A proof-of-concept of a self-replicating malware for Maven build environments.
 
-**Handle with care. Do not run!**
+> [!CAUTION]
+> This is a potentially malicious software used for security testing.
+> Running this software may seriously mess up your development environment.
+> Tread carefully.
 
 It uses [JarPlant](https://github.com/w1th4d/JarPlant)  to inject itself into all [JAR (Java Archive)](https://en.wikipedia.org/wiki/JAR_(file_format)) 
 files found under the local [Maven](https://maven.apache.org/) repository directory (`~/.m2/repository`).
@@ -81,5 +84,5 @@ Then have the spiked JAR be served to your target build environment.
 How you do this depends on your scenario, but it could be through a compromized local artifact repository,
 by MITM, a custom rogue repository mirror, or whatever you fancy.
 
-Please don't break anything for the public.
+Please don't break the internet.
 
