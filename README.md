@@ -41,7 +41,7 @@ Change the `CONF_DOMAIN` to your out-of-bounds DNS catcher (like [Interactsh](ht
 [Burp Collaborator](https://portswigger.net/burp/documentation/collaborator)).
 Leaving this one unset or empty will have the implant skip DNS exfil queries.
 
-You may want to change the `CONF_TARGET_HOSTNAME` value to be aligned with your lab environment.
+You may want to set `CONF_TARGET_HOSTNAME_REGEX` to a regular expression that matches your lab environment.
 
 Build this project:
 ```

